@@ -5,7 +5,6 @@ import sys
 import re
 import os
 import subprocess
-import requests
 
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -244,12 +243,13 @@ class TLCWrapper:
         self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', self.tla2tools_jar, self.tla2tools_class]
         self.simulation_mode = False
         config_file = config_file if config_file is not None else self.default_config_file
+        if not hasattr(config_file, 'read'):
+            config_file = open(config_file, 'r')
+        config_str = config_file.read()
+        config_file.close()
         self.cfg = ConfigParser()
         self.cfg.optionxform = str  # case sensitive
-        if hasattr(config_file, 'read'):
-            self.cfg.read_file(config_file)
-        else:
-            self.cfg.read(config_file)
+        self.cfg.read_string(config_str)
         self.orig_cwd = os.getcwd()
 
         if isinstance(log_file, str):  # if log_file specified, open it before change cwd
@@ -263,6 +263,9 @@ class TLCWrapper:
             if file.endswith('.tla'):
                 copy2(file, model_name)
         os.chdir(model_name)
+        if debug:
+            with open('config.ini', 'w') as f:
+                f.write(config_str)
 
         if log_file:
             if not isinstance(log_file, str):
@@ -322,7 +325,7 @@ class TLCWrapper:
             simulation_options.append('num=' + str(simulation_traces_num))
         simulation_dump_traces = opt.getboolean('simulation dump traces')
         if simulation_dump_traces:
-            simulation_options.append('file=' + os.path.realpath('.') + '/trace')
+            simulation_options.append('file=' + os.path.join(os.path.realpath('.'), 'trace'))
         simulation_options_str = ','.join(simulation_options)
 
         if '-depth' in self.options or '-aril' in self.options or simulation_options_str:
@@ -366,7 +369,8 @@ class TLCWrapper:
     def download_tla2tools(self):
         if not os.path.isfile(self.tla2tools_jar):
             if debug:
-                print('Debug: downloading tla2tools.jar', file=sys.stderr)
+                print('Debug: downloading', self.tla2tools_url, file=sys.stderr)
+            import requests
             r = requests.get(self.tla2tools_url, allow_redirects=True)
             with open(self.tla2tools_jar, 'wb') as f:
                 f.write(r.content)
