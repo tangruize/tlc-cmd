@@ -1,0 +1,6 @@
+.idea
+model_*
+states/*
+*.jar
+MC_*
+trace_*
