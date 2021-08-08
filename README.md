@@ -7,10 +7,17 @@ I write this tool to automatically generate TLC config files and batch check mod
 
 python3+, Java 8+
 
+Optional modules:
+
+```sh
+pip3 install requests  # download tla2tools.jar
+pip3 install psutil    # for "memory ratio" option (see example.ini)
+```
+
 ## How to run
 
 ```sh
-# first arg: config.ini (see next section)
+# first arg: config.ini (see example.ini)
 # second arg: Whether to save summary table or specify an output filename (default true)
 python3 tlcwrapper.py config.ini [true/false/summary.txt]
 ```
