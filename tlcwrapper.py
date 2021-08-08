@@ -16,22 +16,79 @@ from io import StringIO
 debug = True
 
 
+class Summary:
+    """Output summary table"""
+
+    _title_list = ['Diameter', 'States Found', 'Distinct States', 'Queue Size', 'Start Time', 'End Time', 'Duration',
+                   'Exit Status', 'Warnings', 'Errors']
+    _title_list_simulation = ['Traces', 'States Found', 'Start Time', 'End Time', 'Duration',
+                              'Exit Status', 'Warnings', 'Errors']
+
+    def __init__(self):
+        self.batch = []
+        self.current = None
+        self._finished = True
+
+    def init_title(self, is_simulation=False):
+        if self._finished:
+            self.new()
+        titles = self._title_list if not is_simulation else self._title_list_simulation
+        for t in titles:
+            if t not in self.current:
+                self.current[t] = None
+
+    def add_option(self, opt, value):
+        v = value.replace('[model value]', '').replace('<symmetrical>', '').strip()
+        if not v:
+            v = value
+        self.add_info(opt, v, force=True)
+        if v.startswith('{'):
+            n = len(v.split(','))
+            self.add_info('n {}'.format(opt), n, force=True)
+
+    def add_info(self, name, value, force=False):
+        if self._finished:
+            self.new()
+        if force or name in self.current:
+            self.current[name] = value
+
+    def new(self):
+        self.batch.append(OrderedDict())
+        self.current = self.batch[-1]
+        self.current['No.'] = len(self.batch)
+        self._finished = False
+
+    def finish_current(self):
+        self._finished = True
+
+    def __str__(self):
+        lines = ['\t'.join(i.title() for i in self.current.keys())]
+        for task in self.batch:
+            lines.append('\t'.join(str(i) for i in task.values()))
+        return '\n'.join(lines)
+
+
 class BatchConfig:
     """Yield TLCConfigFile cfg files"""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, summary=None):
         self.cfg = cfg
         self.dup_option_info = OrderedDict()
         self.cfg_content = []
         self._parse_cfg()
+        self.summary = summary
 
     def _parse_cfg(self):
         pre_opt_kv = ['', '']
         pre_no = -1
 
         def rm_non_dup_option():
-            if pre_no in self.dup_option_info and len(self.dup_option_info[pre_no]) <= 1:
-                self.dup_option_info.pop(pre_no)
+            if pre_no in self.dup_option_info:
+                if len(self.dup_option_info[pre_no]) <= 1:
+                    self.dup_option_info.pop(pre_no)
+                else:
+                    self.dup_option_info[pre_no] = \
+                        [i for i in self.dup_option_info[pre_no] if "SHOW_IN_TABLE" != i.split(':', 1)[1].strip()]
 
         with open(self.cfg, 'r') as f:
             for no, line in enumerate(f):
@@ -59,6 +116,9 @@ class BatchConfig:
         for comb in product(*values):
             for i, no in enumerate(keys):
                 self.cfg_content[no] = comb[i] + '\n'
+                opt, value = comb[i].split(':', 1)
+                if self.summary:
+                    self.summary.add_option(opt.strip(), value.strip())
             yield comb, StringIO(''.join(self.cfg_content))
 
 
@@ -237,8 +297,9 @@ class TLCWrapper:
     default_mc_user = 'MC_user.txt'
     default_mc_states = 'MC_states'
     default_mc_coverage = 'MC_coverage.txt'
+    default_mc_ini = 'MC.ini'
 
-    def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None):
+    def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None, summary=None):
         """create model dir, chdir, copy files and generate tlc configfile"""
         self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', self.tla2tools_jar, self.tla2tools_class]
         self.simulation_mode = False
@@ -263,9 +324,8 @@ class TLCWrapper:
             if file.endswith('.tla'):
                 copy2(file, model_name)
         os.chdir(model_name)
-        if debug:
-            with open('config.ini', 'w') as f:
-                f.write(config_str)
+        with open(self.default_mc_ini, 'w') as f:
+            f.write(config_str)
 
         if log_file:
             if not isinstance(log_file, str):
@@ -283,6 +343,7 @@ class TLCWrapper:
         self.result = None
         self.log_lines = None
         self.init_result()
+        self.summary = summary if summary is not None else Summary()
 
     def __del__(self):
         if hasattr(self.log_file, 'close'):
@@ -294,7 +355,17 @@ class TLCWrapper:
         self.options = [self.gen_tla_fn, '-config', self.gen_cfg_fn, '-userFile', self.default_mc_user]
         opt = self.cfg['options']
 
-        mem = opt.getint('system memory')
+        mem = None
+        mem_ratio = opt.getfloat('memory ratio')
+        if mem_ratio:
+            try:
+                from psutil import virtual_memory
+                mem = int(virtual_memory().total / 1024 / 1024 * mem_ratio)
+            except ImportError:
+                mem = None
+                print('Warning:', 'failed to import "psutil",', '"memory ratio" is disabled')
+        if mem is None:
+            mem = opt.getint('system memory')
         if mem:
             direct_mem = '-XX:MaxDirectMemorySize=' + str(mem // 3 * 2) + 'm'
             xmx = '-Xmx' + str(mem // 3) + 'm'
@@ -309,10 +380,10 @@ class TLCWrapper:
             elif dump_states.lower() != 'false':
                 self.options += ['-dump', self.default_mc_states]
 
-        options_list = [opt.get('worker num'), opt.getint('checkpoint minute'), opt.getint('dfs depth'),
+        options_list = [opt.get('workers'), opt.getint('checkpoint minute'), opt.getint('dfs depth'),
                         not opt.getboolean('check deadlock'), opt.getint('coverage minute'),
                         opt.getint('simulation depth'), opt.getint('simulation seed')]
-        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-aril']
+        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed']
         for i, j in zip(options, options_list):
             if j:
                 self.options.append(i)
@@ -370,29 +441,36 @@ class TLCWrapper:
         if not os.path.isfile(self.tla2tools_jar):
             if debug:
                 print('Debug: downloading', self.tla2tools_url, file=sys.stderr)
-            import requests
-            r = requests.get(self.tla2tools_url, allow_redirects=True)
-            with open(self.tla2tools_jar, 'wb') as f:
-                f.write(r.content)
+            try:
+                import requests
+                r = requests.get(self.tla2tools_url, allow_redirects=True)
+                with open(self.tla2tools_jar, 'wb') as f:
+                    f.write(r.content)
+            except Exception as e:
+                print('Error:', 'failed to download "tla2tools.jar",', 'you should download it manually')
+                raise e
 
     def run(self):
         """call tlc and analyse output"""
         self.init_result()  # clear result
 
         title_printed = False
-        title_list = ['Time', 'Diameter', 'States Found', 'Distinct States', 'Queue Size']
+        title_list = ['Current Time', 'Duration', 'Diameter', 'States Found', 'Distinct States', 'Queue Size']
         if self.simulation_mode:
-            title_list[1] = 'Traces'
+            title_list = [i if i != 'Diameter' else 'Traces' for i in title_list]
+        self.summary.init_title(is_simulation=self.simulation_mode)
 
         def print_state(time):
             nonlocal title_printed
-            value_list = [str(time), self.result['diameter'], self.result['total states'],
-                          self.result['distinct states'], self.result['queued states']]
+            value_list = [datetime.now().strftime("%H:%M:%S"), str(time), self.result['diameter'],
+                          self.result['total states'], self.result['distinct states'], self.result['queued states']]
             if all(i is not None for i in value_list):
                 if not title_printed:
                     title_printed = True
-                    print(('{:<16}' * 5).format(*title_list))
-                print(('{:<16}' * 5).format(*value_list))
+                    print(('{:<16}' * len(title_list)).format(*title_list))
+                print(('{:<16}' * len(value_list)).format(*value_list))
+                for k, v in zip(title_list, value_list):
+                    self.summary.add_info(k, v)
 
         progress_pat = re.compile(r'Progress\(([\d,]+)\) at (.*): ([\d,]+) s.*, (-?[\d,]+) d.*, (-?[\d,]+) s')
         # finish_pat = re.compile(r'(\d+) states generated, (\d+) distinct states found, (\d+) states left on queue')
@@ -448,7 +526,15 @@ class TLCWrapper:
         if debug:
             print('Debug:', options, file=sys.stderr)
         self.download_tla2tools()
-        process = subprocess.Popen(options, stdout=subprocess.PIPE, universal_newlines=True)
+
+        with open(self.default_mc_ini, 'a') as f:
+            cur_time = datetime.now()
+            f.write('\n; CMD: {}\n; START TIME: {}\n'.format(options, cur_time))
+            self.summary.add_info('Start Time', cur_time)
+            process = subprocess.Popen(options, stdout=subprocess.PIPE, universal_newlines=True)
+            cur_time = datetime.now()
+            self.summary.add_info('End Time', cur_time)
+            f.write('; END TIME: {}\n'.format(cur_time))
 
         for msg_line in iter(process.stdout.readline, ''):
             if msg_line == '':  # sentinel
@@ -471,10 +557,18 @@ class TLCWrapper:
 
         exit_state = process.poll()
         self.result['exit state'] = 0 if exit_state is None else exit_state
+        self.summary.add_info('Exit Status', self.result['exit state'])
+        self.summary.add_info('Warnings', len(self.result['warnings']))
+        self.summary.add_info('Errors', len(self.result['errors']))
+        if len(self.result['error trace']):
+            self.summary.add_info('Error Trace Depth', len(self.result['error trace']), force=True)
         return self.result
 
     def get_log(self):
         return self.log_lines
+
+    def get_summary(self):
+        return self.summary
 
     def save_log(self, filename=None):
         """save tlc output to file"""
@@ -493,30 +587,50 @@ class TLCWrapper:
                 f.write('\n')
 
 
-def main(config_file, log_file=True):
-    for options, config_stringio in BatchConfig(config_file).get():
+def main(config_file, summary_file=None):
+    summary = Summary()
+    options = tuple()
+    for options, config_stringio in BatchConfig(config_file, summary).get():
+        print('#' * 16)
         if options:
-            print('#' * 16)
             print('Options:')
             for i in options:
                 print(' ', i)
             print('-' * 16)
-        tlc = TLCWrapper(config_stringio, log_file=log_file)
+        tlc = TLCWrapper(config_stringio, summary=summary)
         result = tlc.run()
+        print('-' * 16)
         for _, msg in result['warnings']:
-            print('Warning: ' + msg, file=sys.stderr)
+            print('Warning: ' + msg)
         for _, msg in result['errors']:
-            print('Error: ' + msg, file=sys.stderr)
+            print('Error: ' + msg)
         for _, msg in result['error trace']:
-            print(msg, file=sys.stderr)
-        print('errors: {}, warnings: {}, exit_state: {}'.format(len(result['errors']), len(result['warnings']),
-                                                                result['exit state']), file=sys.stderr)
+            print(msg)
+        print('Status: errors: {}, warnings: {}, exit_state: {}'.format(
+            len(result['errors']), len(result['warnings']), result['exit state']))
+        summary.finish_current()
         del tlc
+    print('=' * 16)
+    print(summary)
+    if summary_file or (summary_file is None and options):
+        if isinstance(summary_file, str):
+            name = summary_file
+        else:
+            name = "MC_summary_{}_{}.txt".format(
+                config_file.replace('.ini', ''), datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        with open(name, 'w') as f:
+            print(summary, file=f)
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        print('Usage: python3 {} config.ini'.format(sys.argv[0]), file=sys.stderr)
+        print('Usage: python3 {} config.ini [true/false/summary.txt]'.format(sys.argv[0]), file=sys.stderr)
         exit(1)
     if len(sys.argv) > 1:
-        main(sys.argv[1])
+        sum_file = True if len(sys.argv) == 2 else sys.argv[2]
+        if isinstance(sum_file, str):
+            if sum_file.lower() == 'false':
+                sum_file = False
+            elif sum_file.lower() == 'true':
+                sum_file = True
+        main(sys.argv[1], sum_file)

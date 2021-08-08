@@ -4,3 +4,4 @@ states/*
 *.jar
 MC_*
 trace_*
+*.toolbox

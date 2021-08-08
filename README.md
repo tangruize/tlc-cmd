@@ -10,7 +10,9 @@ python3+, Java 8+
 ## How to run
 
 ```sh
-python3 tlcwrapper.py config.ini
+# first arg: config.ini (see next section)
+# second arg: Whether to save summary table or specify an output filename (default true)
+python3 tlcwrapper.py config.ini [true/false/summary.txt]
 ```
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)
