@@ -73,13 +73,17 @@ class BatchConfig:
     """Yield TLCConfigFile cfg files"""
 
     def __init__(self, cfg, summary=None):
-        self.cfg = cfg
         self.dup_option_info = OrderedDict()
         self.cfg_content = []
-        self._parse_cfg()
         self.summary = summary
+        if not hasattr(cfg, 'read'):
+            cfg_file = open(cfg, 'r')
+        else:
+            cfg_file = cfg
+        self._parse_cfg(cfg_file)
+        cfg_file.close()
 
-    def _parse_cfg(self):
+    def _parse_cfg(self, cfg_file):
         pre_opt_kv = ['', '']
         pre_no = -1
 
@@ -92,29 +96,28 @@ class BatchConfig:
                     self.dup_option_info[pre_no] = [
                         i for i in self.dup_option_info[pre_no] if "SHOW_IN_TABLE" != i.split(':', 1)[1].strip()]
 
-        with open(self.cfg, 'r') as f:
-            for no, line in enumerate(f):
-                self.cfg_content.append(line)
-                line = line.rstrip()
-                if len(line) == 0 or line[0] in '#;[':
-                    continue
-                if line[0] in ' \t':
-                    if pre_no != -1:
-                        self.cfg_content[-1] = ''
-                        self.dup_option_info[pre_no][-1] = '{}\n{}'.format(self.dup_option_info[pre_no][-1], line)
-                    continue
-                opt_kv = line.split(':', 1)
-                if len(opt_kv) != 2:
-                    continue
-                if opt_kv[0] == pre_opt_kv[0]:
-                    self.dup_option_info[pre_no].append(line)
+        for no, line in enumerate(cfg_file):
+            self.cfg_content.append(line)
+            line = line.rstrip()
+            if len(line) == 0 or line[0] in '#;[':
+                continue
+            if line[0] in ' \t':
+                if pre_no != -1:
                     self.cfg_content[-1] = ''
-                else:
-                    rm_non_dup_option()
-                    self.dup_option_info[no] = [line]
-                    pre_no = no
-                pre_opt_kv = opt_kv
-            rm_non_dup_option()
+                    self.dup_option_info[pre_no][-1] = '{}\n{}'.format(self.dup_option_info[pre_no][-1], line)
+                continue
+            opt_kv = line.split(':', 1)
+            if len(opt_kv) != 2:
+                continue
+            if opt_kv[0] == pre_opt_kv[0]:
+                self.dup_option_info[pre_no].append(line)
+                self.cfg_content[-1] = ''
+            else:
+                rm_non_dup_option()
+                self.dup_option_info[no] = [line]
+                pre_no = no
+            pre_opt_kv = opt_kv
+        rm_non_dup_option()
 
     def get(self):
         """yield cfg StringIO"""
@@ -329,7 +332,7 @@ class TLCWrapper:
         target = self.cfg.get('options', 'target')
         TLCWrapper.task_id_number += 1
         task_id = '' if not is_task_id else '_{}'.format(TLCWrapper.task_id_number)
-        model_name = self.cfg.get('options', 'model name') + task_id + datetime.now().strftime("_%Y-%m-%d_%H-%M-%S")
+        model_name = self.cfg.get('options', 'model name') + datetime.now().strftime("_%Y-%m-%d_%H-%M-%S") + task_id
         os.chdir(os.path.dirname(os.path.realpath(target)))
         os.makedirs(model_name, exist_ok=True)
         for file in os.listdir('.'):
@@ -352,7 +355,7 @@ class TLCWrapper:
         self._parse_options()
 
         with open(self.default_mc_ini, 'w') as f:
-            f.write('; {}\n'.format(self.get_cmd_str()))
+            f.write('; {}\n; {}\n\n'.format(*self.get_cmd_str().splitlines()))
             f.write(config_str)
 
         self.result = None
@@ -361,7 +364,7 @@ class TLCWrapper:
         self.summary = summary if summary is not None else Summary()
 
     def __del__(self):
-        if hasattr(self.log_file, 'close'):
+        if hasattr(self, 'log_file') and hasattr(self.log_file, 'close'):
             self.log_file.close()
         os.chdir(self.orig_cwd)
 
@@ -634,8 +637,9 @@ def main(config_file, summary_file=None):
         if isinstance(summary_file, str):
             name = summary_file
         else:
+            config_file_name = config_file if not hasattr(config_file, 'read') else 'stdin'
             name = "MC_summary_{}_{}.txt".format(
-                config_file.replace('.ini', ''), datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+                config_file_name.replace('.ini', ''), datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         with open(name, 'w') as f:
             print(summary, file=f)
 
@@ -662,7 +666,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
                         help="Download tla2tools.jar and exit", default=False)
     parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
-                        help='Configuration file (required if "-d" is not specified)')
+                        help='Configuration file (if not presented, stdin is used)')
 
     args = parser.parse_args()
 
@@ -670,8 +674,7 @@ if __name__ == '__main__':
         TLCWrapper.download_tla2tools()
         exit(0)
     if not args.config_ini:
-        parser.print_help()
-        exit(1)
+        args.config_ini = sys.stdin
     if args.get_cmd:
         raw_run(args.config_ini, is_print_cmd=True)
     elif args.raw_run:
