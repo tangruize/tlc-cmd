@@ -454,14 +454,15 @@ class TLCWrapper:
             self.result[key] = []
         self.log_lines = []
 
-    def download_tla2tools(self):
-        if not os.path.isfile(self.tla2tools_jar):
+    @classmethod
+    def download_tla2tools(cls):
+        if not os.path.isfile(cls.tla2tools_jar):
             if debug:
-                print('Debug: downloading', self.tla2tools_url, file=sys.stderr)
+                print('Debug: downloading', cls.tla2tools_url, file=sys.stderr)
             try:
                 import requests
-                r = requests.get(self.tla2tools_url, allow_redirects=True)
-                with open(self.tla2tools_jar, 'wb') as f:
+                r = requests.get(cls.tla2tools_url, allow_redirects=True)
+                with open(cls.tla2tools_jar, 'wb') as f:
                     f.write(r.content)
             except Exception as e:
                 print('Error:', 'failed to download "tla2tools.jar",', 'you should download it manually')
@@ -658,13 +659,22 @@ if __name__ == '__main__':
                         help="Run without processing TLC output")
     parser.add_argument('-s', dest='no_summary', action='store_true', required=False,
                         help="Do not save summary file", default=False)
-    parser.add_argument(dest='config_ini', metavar='config.ini', action='store', help='Configuration file')
+    parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
+                        help="Download tla2tools.jar and exit", default=False)
+    parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
+                        help='Configuration file (required if "-d" is not specified)')
 
     args = parser.parse_args()
 
+    if args.download_jar:
+        TLCWrapper.download_tla2tools()
+        exit(0)
+    if not args.config_ini:
+        parser.print_help()
+        exit(1)
     if args.get_cmd:
         raw_run(args.config_ini, is_print_cmd=True)
     elif args.raw_run:
         raw_run(args.config_ini, is_print_cmd=False)
     else:
-        main(sys.argv[1], not args.no_summary)
+        main(args.config_ini, not args.no_summary)
