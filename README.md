@@ -16,10 +16,19 @@ pip3 install psutil    # for "memory ratio" option (see example.ini)
 
 ## How to run
 
-```sh
-# first arg: config.ini (see example.ini)
-# second arg: Whether to save summary table or specify an output filename (default true)
-python3 tlcwrapper.py config.ini [true/false/summary.txt]
+```txt
+usage: tlcwrapper.py [-h] [-g] [-r] [-s] config.ini
+
+Run TLC in CMD
+
+positional arguments:
+  config.ini  Configuration file
+
+optional arguments:
+  -h, --help  show this help message and exit
+  -g          Generate TLC config files and print Java CMD strings
+  -r          Run without processing TLC output
+  -s          Do not save summary file
 ```
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)

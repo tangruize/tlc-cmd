@@ -5,6 +5,7 @@ import sys
 import re
 import os
 import subprocess
+import argparse
 
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -64,7 +65,7 @@ class Summary:
     def __str__(self):
         lines = ['\t'.join(i.title() for i in self.current.keys())]
         for task in self.batch:
-            lines.append('\t'.join(str(i) for i in task.values()))
+            lines.append('\t'.join(str(i).replace('\n', ' ') for i in task.values()))
         return '\n'.join(lines)
 
 
@@ -85,16 +86,22 @@ class BatchConfig:
         def rm_non_dup_option():
             if pre_no in self.dup_option_info:
                 if len(self.dup_option_info[pre_no]) <= 1:
-                    self.dup_option_info.pop(pre_no)
+                    line = self.dup_option_info.pop(pre_no)
+                    self.cfg_content[pre_no] = line[0] + '\n'
                 else:
-                    self.dup_option_info[pre_no] = \
-                        [i for i in self.dup_option_info[pre_no] if "SHOW_IN_TABLE" != i.split(':', 1)[1].strip()]
+                    self.dup_option_info[pre_no] = [
+                        i for i in self.dup_option_info[pre_no] if "SHOW_IN_TABLE" != i.split(':', 1)[1].strip()]
 
         with open(self.cfg, 'r') as f:
             for no, line in enumerate(f):
                 self.cfg_content.append(line)
                 line = line.rstrip()
-                if len(line) == 0 or line[0] in '#;[ ':
+                if len(line) == 0 or line[0] in '#;[':
+                    continue
+                if line[0] in ' \t':
+                    if pre_no != -1:
+                        self.cfg_content[-1] = ''
+                        self.dup_option_info[pre_no][-1] = '{}\n{}'.format(self.dup_option_info[pre_no][-1], line)
                     continue
                 opt_kv = line.split(':', 1)
                 if len(opt_kv) != 2:
@@ -299,7 +306,10 @@ class TLCWrapper:
     default_mc_coverage = 'MC_coverage.txt'
     default_mc_ini = 'MC.ini'
 
-    def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None, summary=None):
+    task_id_number = 0
+
+    def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None,
+                 summary=None, is_task_id=True, is_split_user_file=True):
         """create model dir, chdir, copy files and generate tlc configfile"""
         self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', self.tla2tools_jar, self.tla2tools_class]
         self.simulation_mode = False
@@ -317,15 +327,15 @@ class TLCWrapper:
             self.log_file = open(log_file, 'w')
 
         target = self.cfg.get('options', 'target')
-        model_name = self.cfg.get('options', 'model name') + datetime.now().strftime("_%Y-%m-%d_%H-%M-%S")
+        TLCWrapper.task_id_number += 1
+        task_id = '' if not is_task_id else '_{}'.format(TLCWrapper.task_id_number)
+        model_name = self.cfg.get('options', 'model name') + task_id + datetime.now().strftime("_%Y-%m-%d_%H-%M-%S")
         os.chdir(os.path.dirname(os.path.realpath(target)))
         os.makedirs(model_name, exist_ok=True)
         for file in os.listdir('.'):
             if file.endswith('.tla'):
                 copy2(file, model_name)
         os.chdir(model_name)
-        with open(self.default_mc_ini, 'w') as f:
-            f.write(config_str)
 
         if log_file:
             if not isinstance(log_file, str):
@@ -338,7 +348,12 @@ class TLCWrapper:
         TLCConfigFile(self.cfg, self.gen_cfg_fn, self.gen_tla_fn).write()
 
         self.options = []
+        self.is_split_user_file = is_split_user_file
         self._parse_options()
+
+        with open(self.default_mc_ini, 'w') as f:
+            f.write('; {}\n'.format(self.get_cmd_str()))
+            f.write(config_str)
 
         self.result = None
         self.log_lines = None
@@ -352,7 +367,9 @@ class TLCWrapper:
 
     def _parse_options(self):
         """parse options section"""
-        self.options = [self.gen_tla_fn, '-config', self.gen_cfg_fn, '-userFile', self.default_mc_user]
+        self.options = [self.gen_tla_fn, '-config', self.gen_cfg_fn]
+        if self.is_split_user_file:
+            self.options += ['-userFile', self.default_mc_user]
         opt = self.cfg['options']
 
         mem = None
@@ -416,11 +433,11 @@ class TLCWrapper:
 
     def get_cmd_str(self):
         """get tlc command line"""
-        return ' '.join(i for i in chain(self._tlc_cmd, self.options))
+        return 'cd {}\n{}'.format(os.getcwd(), ' '.join(i for i in chain(self._tlc_cmd, self.options)))
 
     def get_cmd_options(self):
         """get tlc command line list"""
-        return self._tlc_cmd + self.options
+        return os.getcwd(), self._tlc_cmd + self.options
 
     def raw_run(self):
         """directly call tlc program without analysing the output"""
@@ -595,7 +612,7 @@ def main(config_file, summary_file=None):
         if options:
             print('Options:')
             for i in options:
-                print(' ', i)
+                print(' ', i.replace('\n', '\n  '))
             print('-' * 16)
         tlc = TLCWrapper(config_stringio, summary=summary)
         result = tlc.run()
@@ -622,15 +639,32 @@ def main(config_file, summary_file=None):
             print(summary, file=f)
 
 
+def raw_run(config_file, is_print_cmd=False):
+    for _, config_stringio in BatchConfig(config_file).get():
+        tlc = TLCWrapper(config_stringio, log_file=None, is_split_user_file=False)
+        if is_print_cmd:
+            print(tlc.get_cmd_str())
+        else:
+            tlc.raw_run()
+        del tlc
+
+
 if __name__ == '__main__':
-    if len(sys.argv) == 1:
-        print('Usage: python3 {} config.ini [true/false/summary.txt]'.format(sys.argv[0]), file=sys.stderr)
-        exit(1)
-    if len(sys.argv) > 1:
-        sum_file = True if len(sys.argv) == 2 else sys.argv[2]
-        if isinstance(sum_file, str):
-            if sum_file.lower() == 'false':
-                sum_file = False
-            elif sum_file.lower() == 'true':
-                sum_file = True
-        main(sys.argv[1], sum_file)
+    parser = argparse.ArgumentParser(description="Run TLC in CMD")
+
+    parser.add_argument('-g', dest='get_cmd', action='store_true', required=False,
+                        help="Generate TLC config files and print Java CMD strings")
+    parser.add_argument('-r', dest='raw_run', action='store_true', required=False,
+                        help="Run without processing TLC output")
+    parser.add_argument('-s', dest='no_summary', action='store_true', required=False,
+                        help="Do not save summary file", default=False)
+    parser.add_argument(dest='config_ini', metavar='config.ini', action='store', help='Configuration file')
+
+    args = parser.parse_args()
+
+    if args.get_cmd:
+        raw_run(args.config_ini, is_print_cmd=True)
+    elif args.raw_run:
+        raw_run(args.config_ini, is_print_cmd=False)
+    else:
+        main(sys.argv[1], not args.no_summary)
