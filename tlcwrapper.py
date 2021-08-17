@@ -461,7 +461,7 @@ class TLCWrapper:
     def download_tla2tools(cls):
         if not os.path.isfile(cls.tla2tools_jar):
             if debug:
-                print('Debug: downloading', cls.tla2tools_url, file=sys.stderr)
+                print('Debug: downloading:', cls.tla2tools_url, file=sys.stderr)
             try:
                 import requests
                 r = requests.get(cls.tla2tools_url, allow_redirects=True)
@@ -493,7 +493,7 @@ class TLCWrapper:
                 for k, v in zip(title_list, value_list):
                     self.summary.add_info(k, v)
 
-        progress_pat = re.compile(r'Progress\(([\d,]+)\) at (.*): ([\d,]+) s.*, (-?[\d,]+) d.*, (-?[\d,]+) s')
+        progress_pat = re.compile(r'Progress\(%?([\d,]+)%?\) at (.*): ([\d,]+) s.*, (-?[\d,]+) d.*, (-?[\d,]+) s')
         # finish_pat = re.compile(r'(\d+) states generated, (\d+) distinct states found, (\d+) states left on queue')
 
         tmp_lines = []
@@ -513,14 +513,19 @@ class TLCWrapper:
                 self.result['time consuming'] = self.result['finish time'] - self.result['start time']
                 # print_state(self.result['time consuming'])
             elif message_code == 2200 or message_code == 2209:  # Progress...
-                groups = progress_pat.match(line).groups()
-                self.result['diameter'] = int(groups[0].replace(',', ''))
-                self.result['total states'] = int(groups[2].replace(',', ''))
-                self.result['distinct states'] = int(groups[3].replace(',', ''))
-                self.result['queued states'] = int(groups[4].replace(',', ''))
-                current_time = datetime.strptime(groups[1], '%Y-%m-%d %H:%M:%S')
-                self.result['time consuming'] = current_time - self.result['start time']
-                print_state(self.result['time consuming'])
+                progress_match = progress_pat.match(line)
+                if not progress_match:
+                    if debug:
+                        print('Debug:', 'Please report this bug: match failed: "{}".'.format(line), file=sys.stderr)
+                else:
+                    groups = progress_match.groups()
+                    self.result['diameter'] = int(groups[0].replace(',', ''))
+                    self.result['total states'] = int(groups[2].replace(',', ''))
+                    self.result['distinct states'] = int(groups[3].replace(',', ''))
+                    self.result['queued states'] = int(groups[4].replace(',', ''))
+                    current_time = datetime.strptime(groups[1], '%Y-%m-%d %H:%M:%S')
+                    self.result['time consuming'] = current_time - self.result['start time']
+                    print_state(self.result['time consuming'])
             elif message_code == 2190:  # Finished computing initial states ...
                 states = int(line.split(':')[1].split(' ')[1])
                 self.result['diameter'] = 0
@@ -545,7 +550,8 @@ class TLCWrapper:
 
         options = self._tlc_cmd + self.options + ['-tool']  # tool mode
         if debug:
-            print('Debug:', options, file=sys.stderr)
+            print('Debug: cwd:', os.getcwd(), file=sys.stderr)
+            print('Debug: cmd:', options, file=sys.stderr)
         self.download_tla2tools()
 
         with open(self.default_mc_ini, 'a') as f:
@@ -612,7 +618,7 @@ def main(config_file, summary_file=None):
     summary = Summary()
     options = tuple()
     for options, config_stringio in BatchConfig(config_file, summary).get():
-        print('#' * 16)
+        print('\n{}'.format('#' * 16))
         if options:
             print('Options:')
             for i in options:
