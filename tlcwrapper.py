@@ -63,9 +63,19 @@ class Summary:
         self._finished = True
 
     def __str__(self):
-        lines = ['\t'.join(i.title() for i in self.current.keys())]
+        if self.current is None:
+            return ''
+        # lines = ['\t'.join(i.title() for i in self.current.keys())]
+        lines = []
+        max_title_len = 0
+        title_line = ''
         for task in self.batch:
+            title_len = len(task.keys())
+            if max_title_len < title_len:
+                max_title_len = title_len
+                title_line = '\t'.join(i.title() for i in task.keys())
             lines.append('\t'.join(str(i).replace('\n', ' ') for i in task.values()))
+        lines.insert(0, title_line)
         return '\n'.join(lines)
 
 
@@ -150,7 +160,7 @@ class TLCConfigFile:
         self.output_tla_constants_fn = output_tla_constants_fn
         self.target_tla_file = target_tla_file
         if self.output_tla_constants_fn:
-            self.extends_string = self._get_extends_str(self.target_tla_file) + ', '
+            self.extends_string = self._get_extends_str(self.target_tla_file)
         else:
             self.extends_string = ''
         self.top_module = re.sub(r'.tla$', '', os.path.basename(cfg.get('options', 'target')))
@@ -168,7 +178,10 @@ class TLCConfigFile:
                 line = line.strip()
                 if line.startswith('EXTENDS'):
                     _, e = line.split(' ', 1)
-                    return e
+                    if 'TLC' in e:
+                        return e
+                    else:
+                        return e + ', TLC'
     
     def _set_extends_str(self, more):
         if not self.target_tla_file:
@@ -181,7 +194,8 @@ class TLCConfigFile:
             if module_idx == -1 and 'MODULE' in line:
                 module_idx = i
             if line.strip().startswith('EXTENDS'):
-                lines[i] = line.rstrip() + ', ' + more + '\n'
+                if more not in line:
+                    lines[i] = line.rstrip() + ', ' + more + '\n'
                 find_extends = True
                 break
         if not find_extends and module_idx != -1:
@@ -278,7 +292,8 @@ class TLCConfigFile:
                 self.output_tla_constants.append(tla_str)
             if symmetrical:
                 self.output_cfg.append('SYMMETRY symm_{}'.format(len(symmetrical)))
-                self.output_tla_constants.append('symm_{} ==\n{}'.format(len(symmetrical), ' \\union '.join(symmetrical)))
+                self.output_tla_constants.append(
+                    'symm_{} ==\n{}'.format(len(symmetrical), ' \\union '.join(symmetrical)))
 
     def _parse_override(self):
         """parse override section"""
@@ -291,7 +306,8 @@ class TLCConfigFile:
             if const_expr:
                 self.output_cfg.append(None)
                 val = 'const_expr'
-                self.output_tla_options.append('{} ==\n{}\nASSUME PrintT(<<"$!@$!@$!@$!@$!",{}>>)'.format(val, const_expr, val))
+                self.output_tla_options.append(
+                    '{} ==\n{}\nASSUME PrintT(<<"$!@$!@$!@$!@$!",{}>>)'.format(val, const_expr, val))
 
     def _parse_additional_definitions(self):
         """parse additional definitions section"""
@@ -335,7 +351,7 @@ class TLCConfigFile:
             with open(output_tla_constants_fn, 'w') as tla_f:
                 module = '---- MODULE {} ----\n'.format(output_tla_constants_fn.replace('.tla', ''))
                 tla_f.write(module)
-                tla_f.write('EXTENDS {}TLC\n\n'.format(self.extends_string))
+                tla_f.write('EXTENDS {}\n\n'.format(self.extends_string))
                 tla_f.write('\n----\n\n'.join(filter(None, self.output_tla_constants)))
                 tla_f.write('\n{}\n'.format('=' * len(module)))
                 tla_f.write('{} on {}\n'.format(self.tag, datetime.now()))

@@ -1,7 +1,7 @@
 # Run TLC in CMD
 
 TLC's config files are not intuitive to write.
-I write this tool to automatically generate TLC config files and batch check models.
+This tool automatically generates TLC config files and can batch models.
 
 ## Dependencies
 
@@ -34,6 +34,9 @@ optional arguments:
 ```
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)
+
+A new feature: "-c" separates constants module and auto extends it in your spec,
+so that you can use the values of `set of model values` in your spec.
 
 ## How to write config.ini
 
