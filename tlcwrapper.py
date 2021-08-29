@@ -13,8 +13,53 @@ from itertools import chain, zip_longest, product
 from shutil import copy2
 from datetime import datetime
 from io import StringIO
+from collections.abc import Mapping
 
 debug = True
+
+
+class PrintTable:
+    """Print CSV/Markdown table"""
+
+    @classmethod
+    def _print_table(cls, table, title=None, file=sys.stdout, sep=',', wrap='', default=''):
+        def _w(string): return '{} {} {}'.format(wrap, string, wrap).strip()
+        def _p(string): return string if wrap else '"{}"'.format(string.replace('"','""'))
+        def _f(it):     return filter(lambda x: x is not None, it)
+        def _t(string): return _p(title[string]) if string in title else None
+        def _v(k, d):
+            if k not in d:
+                return _p(str(default))
+            return _p(str(d[k])) if k in title else None
+
+        table = list(table.values()) if isinstance(table, Mapping) else list(table)
+        if title is None:
+            title = dict(zip(table[0].keys(), table[0].keys()))
+        print(_w(sep.join(_f(map(lambda k: _t(k), title.keys())))), file=file)
+        if wrap:
+            print(_w(sep.join(_f(map(lambda k:  '---' if _t(k) else None, title.keys())))), file=file)
+        for i in table:
+            print(_w(sep.join(_f(map(lambda kd: _v(*kd), ((k, i) for k in title.keys()))))), file=file)
+
+    @classmethod
+    def print_csv_table(cls, table, title=None, file=sys.stdout, tab=False, default=''):
+        cls._print_table(table, title, file=file, sep='\t' if tab else ',', default=default)
+
+    @classmethod
+    def print_md_table(cls, table, title=None, file=sys.stdout, default=''):
+        cls._print_table(table, title, file=file, sep=' | ', wrap='|', default=default)
+
+    @classmethod
+    def print_table(cls, table, title=None, filename='', default=''):
+        if not filename:
+            cls.print_csv_table(table, title, tab=True, default=default)
+        else:
+            if filename.endswith('.md'):
+                with open(filename, 'w') as out:
+                    cls.print_md_table(table, title, out, default=default)
+            else:
+                with open(filename, 'w', encoding='utf-8-sig') as out:
+                    cls.print_csv_table(table, title, out, default=default)
 
 
 class Summary:
@@ -50,6 +95,7 @@ class Summary:
     def add_info(self, name, value, force=False):
         if self._finished:
             self.new()
+        name = name.title()
         if force or name in self.current:
             self.current[name] = value
 
@@ -62,21 +108,26 @@ class Summary:
     def finish_current(self):
         self._finished = True
 
+    def _get_longest_title(self):
+        title_list = []
+        for task in self.batch:
+            tmp_list = list(task.keys())
+            if len(title_list) < len(tmp_list):
+                title_list = tmp_list
+        return title_list
+
     def __str__(self):
         if self.current is None:
             return ''
-        # lines = ['\t'.join(i.title() for i in self.current.keys())]
-        lines = []
-        max_title_len = 0
-        title_line = ''
+        lines = ['\t'.join(self._get_longest_title())]
         for task in self.batch:
-            title_len = len(task.keys())
-            if max_title_len < title_len:
-                max_title_len = title_len
-                title_line = '\t'.join(i.title() for i in task.keys())
             lines.append('\t'.join(str(i).replace('\n', ' ') for i in task.values()))
-        lines.insert(0, title_line)
         return '\n'.join(lines)
+    
+    def print_to_file(self, file):
+        title = self._get_longest_title()
+        title = dict(zip(title, title))
+        PrintTable.print_table(self.batch, title, file)
 
 
 class BatchConfig:
@@ -639,7 +690,7 @@ class TLCWrapper:
             process = subprocess.Popen(options, stdout=subprocess.PIPE, universal_newlines=True)
             cur_time = datetime.now()
             self.summary.add_info('End Time', cur_time)
-            f.write('; END TIME: {}\n'.format(cur_time))
+            # f.write('; END TIME: {}\n'.format(cur_time))
 
         for msg_line in iter(process.stdout.readline, ''):
             if msg_line == '':  # sentinel
@@ -667,6 +718,11 @@ class TLCWrapper:
         self.summary.add_info('Errors', len(self.result['errors']))
         if len(self.result['error trace']):
             self.summary.add_info('Error Trace Depth', len(self.result['error trace']), force=True)
+        with open(self.default_mc_ini, 'a') as f:
+            cur_time = datetime.now()
+            self.summary.add_info('End Time', cur_time)
+            self.summary.add_info('Duration', self.summary.current['End Time'] - self.summary.current['Start Time'])
+            f.write('; END TIME: {}\n'.format(cur_time))
         return self.result
 
     def get_log(self):
@@ -722,10 +778,9 @@ def main(config_file, summary_file=None, separate_constants=None):
             name = summary_file
         else:
             config_file_name = config_file if not hasattr(config_file, 'read') else 'stdin'
-            name = "MC_summary_{}_{}.txt".format(
-                config_file_name.replace('.ini', ''), datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-        with open(name, 'w') as f:
-            print(summary, file=f)
+            name = "MC_summary_{}_{}.csv".format(
+                os.path.basename(config_file_name).replace('.ini', ''), datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        summary.print_to_file(name)
 
 
 def raw_run(config_file, is_print_cmd=False, separate_constants=None):

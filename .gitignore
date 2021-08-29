@@ -5,3 +5,4 @@ states/*
 MC_*
 trace_*
 *.toolbox
+.vscode
