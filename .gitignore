@@ -6,3 +6,4 @@ MC_*
 trace_*
 *.toolbox
 .vscode
+!*.py
