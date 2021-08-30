@@ -7,3 +7,4 @@ trace_*
 *.toolbox
 .vscode
 !*.py
+__pycache__
