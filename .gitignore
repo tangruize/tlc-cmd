@@ -8,3 +8,6 @@ trace_*
 .vscode
 !*.py
 __pycache__
+tlccmd.egg-info
+dist
+build
