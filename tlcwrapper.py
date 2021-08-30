@@ -409,6 +409,88 @@ class TLCConfigFile:
             self._set_extends_str(output_tla_constants_fn.replace('.tla', ''))
 
 
+class ReplaceInit:
+    """Replace TLA Init state with a specific state from a trace file"""
+
+    def __init__(self, tla_file: str, trace_file: str, replace_state: int=0, python_init: str='') -> None:
+        def choose_state(state_num: int, state_dict: dict, state_str: str, is_last_state: bool) -> str:
+            if replace_state == state_num or is_last_state:
+                return state_str
+            return ''
+
+        self.tla_file = tla_file
+        self.trace_file = trace_file
+        self.chooser_handler = choose_state
+        self.init_module = None
+        if python_init:
+            try:
+                sys.path.insert(1, os.path.dirname(python_init))
+                self.init_module = __import__(os.path.basename(python_init).replace('.py', ''))
+                sys.path.pop(1)
+            except ModuleNotFoundError:
+                pass
+        if hasattr(self.init_module, 'init_replace_init'):
+            if debug:
+                print('Debug: calling "init_replace_init"')
+            self.init_module.init_replace_init(self)
+
+    def set_chooser_handler(self, func) -> None:
+        self.chooser_handler = func
+
+    def get_replace_state_str(self):
+        try:
+            from trace_reader import TraceReader
+        except ModuleNotFoundError:
+            print('Warning:', 'failed to import "trace_reader",', '"init state" is disabled', file=sys.stderr)
+            return ''
+        tr = TraceReader()
+        if hasattr(self.init_module, 'init_trace_reader'):
+            if debug:
+                print('Debug: calling "init_trace_reader"')
+            self.init_module.init_trace_reader(tr)
+        states = list(tr.trace_reader_with_state_str(self.trace_file))
+        for i, state in enumerate(states):
+            chosen = self.chooser_handler(i + 1, state[0], state[1], i + 1 == len(states))
+            if chosen:
+                if debug:
+                    print('Debug: choose init state: {}{}'.format(
+                        i + 1, ' (last state)' if i + 1 == len(states) else ''))
+                return chosen
+        if debug:
+            print('Debug: no init state is chosen')
+        return ''
+
+    def get_replaced_tla_file_lines(self, replace_str=None) -> list:
+        lines = []
+        if replace_str is None:
+            replace_str = self.get_replace_state_str()
+        with open(self.tla_file) as f:
+            started = False
+            for line in f:
+                if not started:
+                    if line.startswith('Init ==') and replace_str:
+                        started = True
+                        lines.append('Init ==\n')
+                        lines.append(replace_str)
+                        lines.append('\n\n')
+                    else:
+                        lines.append(line)
+                elif line[0] == '\n':
+                    started = False
+        return lines
+
+    def write(self) -> None:
+        replace_str = self.get_replace_state_str()
+        if not replace_str:
+            return
+        tla_lines = self.get_replaced_tla_file_lines(replace_str)
+        os.rename(self.tla_file, self.tla_file + '.bak')
+        with open(self.tla_file, 'w') as f:
+            f.writelines(tla_lines)
+        if debug:
+            print('Debug: replaced Init TLA+ file:', self.tla_file)
+
+
 class TLCWrapper:
     """TLC cmdline options"""
     _script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -458,7 +540,10 @@ class TLCWrapper:
         for file in os.listdir('.'):
             if file.endswith('.tla'):
                 copy2(file, model_name)
-        os.chdir(model_name)
+        model_dir = os.path.realpath(model_name)
+        os.chdir(self.orig_cwd)
+        need_separate_constants = self._parse_init_state(os.path.join(model_dir, os.path.basename(target)))
+        os.chdir(model_dir)
 
         if log_file:
             if not isinstance(log_file, str):
@@ -468,6 +553,8 @@ class TLCWrapper:
 
         self.gen_cfg_fn = gen_cfg_fn if gen_cfg_fn is not None else self.default_mc_cfg
         self.gen_tla_fn = gen_tla_fn if gen_tla_fn is not None else self.default_mc_tla
+        if need_separate_constants and not gen_tla_constants_fn:
+            gen_tla_constants_fn = True
         if not gen_tla_constants_fn:
             self.gen_tla_constants_fn = None
         else:
@@ -496,6 +583,19 @@ class TLCWrapper:
         if hasattr(self, 'log_file') and hasattr(self.log_file, 'close'):
             self.log_file.close()
         os.chdir(self.orig_cwd)
+
+    def _parse_init_state(self, tla_file):
+        if 'init state' in self.cfg:
+            opt = self.cfg['init state']
+        else:
+            return False
+        trace_file = opt.get('trace file')
+        if not trace_file:
+            return False
+        replace_state = opt.getint('state', fallback=0)
+        python_init = opt.get('python init file')
+        ReplaceInit(tla_file, trace_file, replace_state, python_init).write()
+        return True
 
     def _parse_options(self):
         """parse options section"""
@@ -785,7 +885,8 @@ def main(config_file, summary_file=None, separate_constants=None):
 
 def raw_run(config_file, is_print_cmd=False, separate_constants=None):
     for _, config_stringio in BatchConfig(config_file).get():
-        tlc = TLCWrapper(config_stringio, log_file=None, is_split_user_file=False, gen_tla_constants_fn=separate_constants)
+        tlc = TLCWrapper(config_stringio, log_file=None, is_split_user_file=False,
+            gen_tla_constants_fn=separate_constants)
         if is_print_cmd:
             print(tlc.get_cmd_str())
         else:
