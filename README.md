@@ -77,3 +77,5 @@ An example of replacing Init:
 ## Misc
 
 If you find bugs, welcome to submit issues and pull requests!
+
+If you can speak Chinese, this [video tutorial](https://www.bilibili.com/video/BV1B3411r71a) may help you get started.
