@@ -431,7 +431,7 @@ class ReplaceInit:
                 pass
         if hasattr(self.init_module, 'init_replace_init'):
             if debug:
-                print('Debug: calling "init_replace_init"')
+                print('Debug: calling "init_replace_init"', file=sys.stderr)
             self.init_module.init_replace_init(self)
 
     def set_chooser_handler(self, func) -> None:
@@ -446,7 +446,7 @@ class ReplaceInit:
         tr = TraceReader()
         if hasattr(self.init_module, 'init_trace_reader'):
             if debug:
-                print('Debug: calling "init_trace_reader"')
+                print('Debug: calling "init_trace_reader"', file=sys.stderr)
             self.init_module.init_trace_reader(tr)
         states = list(tr.trace_reader_with_state_str(self.trace_file))
         for i, state in enumerate(states):
@@ -454,10 +454,10 @@ class ReplaceInit:
             if chosen:
                 if debug:
                     print('Debug: choose init state: {}{}'.format(
-                        i + 1, ' (last state)' if i + 1 == len(states) else ''))
+                        i + 1, ' (last state)' if i + 1 == len(states) else ''), file=sys.stderr)
                 return chosen
         if debug:
-            print('Debug: no init state is chosen')
+            print('Debug: no init state is chosen', file=sys.stderr)
         return ''
 
     def get_replaced_tla_file_lines(self, replace_str=None) -> list:
@@ -488,14 +488,18 @@ class ReplaceInit:
         with open(self.tla_file, 'w') as f:
             f.writelines(tla_lines)
         if debug:
-            print('Debug: replaced Init TLA+ file:', self.tla_file)
+            print('Debug: replaced Init TLA+ file:', self.tla_file, file=sys.stderr)
 
 
 class TLCWrapper:
     """TLC cmdline options"""
     _script_dir = os.path.dirname(os.path.realpath(__file__))
     tla2tools_jar = os.path.join(_script_dir, 'tla2tools.jar')
-    tla2tools_url = 'https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar'
+    community_jar = os.path.join(_script_dir, 'CommunityModules-deps.jar')
+    tla2tools_url = 'https://github.com/tlaplus/tlaplus/releases/download/{}/tla2tools.jar'
+    tla2tool2_jar_version = 'v1.8.0'
+    community_url = 'https://github.com/tlaplus/CommunityModules/releases/download/{}/CommunityModules-deps.jar'
+    community_jar_version = '202108271748'
     tla2tools_class = 'tlc2.TLC'
 
     default_config_file = 'config.ini'  # default input file
@@ -513,10 +517,16 @@ class TLCWrapper:
     task_id_number = 0
 
     def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None, gen_tla_constants_fn=None,
-                 summary=None, is_task_id=True, is_split_user_file=True):
+                 summary=None, is_task_id=True, is_split_user_file=True, classpath='', need_community_modules=False):
         """create model dir, chdir, copy files and generate tlc configfile"""
-        self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', self.tla2tools_jar, self.tla2tools_class]
+        
+        # save current dir
+        self.orig_cwd = os.getcwd()
+
+        # default is not simulation mode
         self.simulation_mode = False
+
+        # open config file
         config_file = config_file if config_file is not None else self.default_config_file
         if not hasattr(config_file, 'read'):
             config_file = open(config_file, 'r')
@@ -525,11 +535,28 @@ class TLCWrapper:
         self.cfg = ConfigParser()
         self.cfg.optionxform = str  # case sensitive
         self.cfg.read_string(config_str)
-        self.orig_cwd = os.getcwd()
 
+        if 'options' not in self.cfg:
+            print('Error: config file has no "options" section, run "python3 {} -h" for help'.format(sys.argv[0]))
+            raise ValueError('config file has no "options" section')
+
+        # check dependencies and set classpath
+        if not need_community_modules and 'community modules' in self.cfg['options']:
+            need_community_modules = self.cfg.getboolean('options', 'community modules', fallback=False)
+        if not classpath:
+            classpath = self.tla2tools_jar
+        else:
+            classpath = '{}:{}'.format(classpath, self.tla2tools_jar)
+        self.need_community_modules = need_community_modules
+        if need_community_modules:
+            classpath = '{}:{}'.format(classpath, self.community_jar)
+        self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', classpath, self.tla2tools_class]
+
+        # open log file
         if isinstance(log_file, str):  # if log_file specified, open it before change cwd
             self.log_file = open(log_file, 'w')
 
+        # take model dir
         target = self.cfg.get('options', 'target')
 
         TLCWrapper.task_id_number += 1
@@ -545,12 +572,14 @@ class TLCWrapper:
         need_separate_constants = self._parse_init_state(os.path.join(model_dir, os.path.basename(target)))
         os.chdir(model_dir)
 
+        # check and open log file again
         if log_file:
             if not isinstance(log_file, str):
                 self.log_file = open(self.default_mc_log, 'w')
         else:
             self.log_file = None
 
+        # generate config files
         self.gen_cfg_fn = gen_cfg_fn if gen_cfg_fn is not None else self.default_mc_cfg
         self.gen_tla_fn = gen_tla_fn if gen_tla_fn is not None else self.default_mc_tla
         if need_separate_constants and not gen_tla_constants_fn:
@@ -566,6 +595,7 @@ class TLCWrapper:
         TLCConfigFile(self.cfg, self.gen_cfg_fn, self.gen_tla_fn,
             self.gen_tla_constants_fn, target_tla_file=os.path.basename(target)).write()
 
+        # set Java and TLC options
         self.options = []
         self.is_split_user_file = is_split_user_file
         self._parse_options()
@@ -574,6 +604,7 @@ class TLCWrapper:
             f.write('; {}\n; {}\n\n'.format(*self.get_cmd_str().splitlines()))
             f.write(config_str)
 
+        # init result and summary table
         self.result = None
         self.log_lines = None
         self.init_result()
@@ -673,7 +704,12 @@ class TLCWrapper:
 
     def raw_run(self):
         """directly call tlc program without analysing the output"""
-        subprocess.call(self._tlc_cmd + self.options)
+        self.download_dependencies()
+        options = self._tlc_cmd + self.options
+        if debug:
+            print('Debug: cwd:', os.getcwd(), file=sys.stderr)
+            print('Debug: cmd:', options, file=sys.stderr)
+        subprocess.call(options)
 
     def init_result(self):
         result_key = ['start time', 'finish time', 'time consuming',
@@ -686,19 +722,42 @@ class TLCWrapper:
             self.result[key] = []
         self.log_lines = []
 
-    @classmethod
-    def download_tla2tools(cls):
-        if not os.path.isfile(cls.tla2tools_jar):
-            if debug:
-                print('Debug: downloading:', cls.tla2tools_url, file=sys.stderr)
+    @staticmethod
+    def download_jar(target, url, default_version, lastest_version_link):
+        def version_numbers(s):
+            return [int(i.replace('v', '')) for i in s.split('.')]
+
+        if not os.path.isfile(target):
             try:
                 import requests
-                r = requests.get(cls.tla2tools_url, allow_redirects=True)
-                with open(cls.tla2tools_jar, 'wb') as f:
+                r = requests.get(lastest_version_link)
+                version = r.json()['tag_name']
+                if version_numbers(version) < version_numbers(default_version):
+                    version = default_version
+                if debug:
+                    print('Debug: downloading:', url.format(version), file=sys.stderr)
+                r = requests.get(url.format(version), allow_redirects=True)
+                with open(target, 'wb') as f:
                     f.write(r.content)
             except Exception as e:
-                print('Error:', 'failed to download "tla2tools.jar",', 'you should download it manually')
+                print('Error:', 'failed to download "{}", you should download it manually'.format(
+                    os.path.basename(target)))
                 raise e
+
+    @classmethod
+    def download_tla2tools(cls):
+        lastest_version_link = 'https://api.github.com/repos/tlaplus/tlaplus/releases/latest'
+        cls.download_jar(cls.tla2tools_jar, cls.tla2tools_url, cls.tla2tool2_jar_version, lastest_version_link)
+
+    @classmethod
+    def download_community_modules(cls):
+        lastest_version_link = 'https://api.github.com/repos/tlaplus/CommunityModules/releases/latest'
+        cls.download_jar(cls.community_jar, cls.community_url, cls.community_jar_version, lastest_version_link)
+
+    def download_dependencies(self):
+        self.download_tla2tools()
+        if self.need_community_modules:
+            self.download_community_modules()
 
     def run(self):
         """call tlc and analyse output"""
@@ -781,7 +840,7 @@ class TLCWrapper:
         if debug:
             print('Debug: cwd:', os.getcwd(), file=sys.stderr)
             print('Debug: cmd:', options, file=sys.stderr)
-        self.download_tla2tools()
+        self.download_dependencies()
 
         with open(self.default_mc_ini, 'a') as f:
             cur_time = datetime.now()
@@ -848,7 +907,7 @@ class TLCWrapper:
                 f.write('\n')
 
 
-def main(config_file, summary_file=None, separate_constants=None):
+def main(config_file, summary_file=None, separate_constants=None, classpath='', need_community_modules=False):
     summary = Summary()
     options = tuple()
     for options, config_stringio in BatchConfig(config_file, summary).get():
@@ -858,7 +917,8 @@ def main(config_file, summary_file=None, separate_constants=None):
             for i in options:
                 print(' ', i.replace('\n', '\n  '))
             print('-' * 16)
-        tlc = TLCWrapper(config_stringio, summary=summary, gen_tla_constants_fn=separate_constants)
+        tlc = TLCWrapper(config_stringio, summary=summary, gen_tla_constants_fn=separate_constants,
+            classpath=classpath, need_community_modules=need_community_modules)
         result = tlc.run()
         print('-' * 16)
         for _, msg in result['warnings']:
@@ -883,10 +943,10 @@ def main(config_file, summary_file=None, separate_constants=None):
         summary.print_to_file(name)
 
 
-def raw_run(config_file, is_print_cmd=False, separate_constants=None):
+def raw_run(config_file, is_print_cmd=False, separate_constants=None, classpath='', need_community_modules=False):
     for _, config_stringio in BatchConfig(config_file).get():
         tlc = TLCWrapper(config_stringio, log_file=None, is_split_user_file=False,
-            gen_tla_constants_fn=separate_constants)
+            gen_tla_constants_fn=separate_constants, classpath=classpath, need_community_modules=need_community_modules)
         if is_print_cmd:
             print(tlc.get_cmd_str())
         else:
@@ -897,6 +957,8 @@ def raw_run(config_file, is_print_cmd=False, separate_constants=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run TLC in CMD")
 
+    parser.add_argument('-j', dest='classpath', action='store', required=False,
+                        help='Java classpath to use')
     parser.add_argument('-g', dest='get_cmd', action='store_true', required=False,
                         help="Generate TLC config files and print Java CMD strings")
     parser.add_argument('-r', dest='raw_run', action='store_true', required=False,
@@ -904,22 +966,32 @@ if __name__ == '__main__':
     parser.add_argument('-s', dest='no_summary', action='store_true', required=False,
                         help="Do not save summary file", default=False)
     parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
-                        help="Download tla2tools.jar and exit", default=False)
+                        help="Download tla2tools.jar and CommunityModules-deps.jar and exit", default=False)
     parser.add_argument('-c', dest='separate_constants', action='store_true', required=False,
                         help="separate constants and model options into two files", default=False)
     parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
                         help='Configuration file (if not presented, stdin is used)')
+    parser.add_argument('-m', dest='community_modules', action='store_true', required=False,
+                        help='Require community modules')
+    parser.add_argument('-n', dest='no_debug', action='store_true', required=False,
+                        help='Not to print debug messages')
 
     args = parser.parse_args()
 
     if args.download_jar:
         TLCWrapper.download_tla2tools()
+        TLCWrapper.download_community_modules()
         exit(0)
+    if args.no_debug:
+        debug = False
     if not args.config_ini:
         args.config_ini = sys.stdin
     if args.get_cmd:
-        raw_run(args.config_ini, is_print_cmd=True, separate_constants=args.separate_constants)
+        raw_run(args.config_ini, is_print_cmd=True, separate_constants=args.separate_constants,
+            classpath=args.classpath, need_community_modules=args.community_modules)
     elif args.raw_run:
-        raw_run(args.config_ini, is_print_cmd=False, separate_constants=args.separate_constants)
+        raw_run(args.config_ini, is_print_cmd=False, separate_constants=args.separate_constants,
+            classpath=args.classpath, need_community_modules=args.community_modules)
     else:
-        main(args.config_ini, not args.no_summary, separate_constants=args.separate_constants)
+        main(args.config_ini, not args.no_summary, separate_constants=args.separate_constants,
+            classpath=args.classpath, need_community_modules=args.community_modules)
