@@ -26,20 +26,23 @@ pip3 install psutil    # for "memory ratio" option (see example.ini)
 ### tlcwrapper.py
 
 ```txt
-usage: tlcwrapper.py [-h] [-g] [-r] [-s] [-d] [-c] [config.ini]
+usage: tlcwrapper.py [-h] [-j CLASSPATH] [-g] [-r] [-s] [-d] [-c] [-m] [-n] [config.ini]
 
 Run TLC in CMD
 
 positional arguments:
-  config.ini  Configuration file (if not presented, stdin is used)
+  config.ini    Configuration file (if not presented, stdin is used)
 
 optional arguments:
-  -h, --help  show this help message and exit
-  -g          Generate TLC config files and print Java CMD strings
-  -r          Run without processing TLC output
-  -s          Do not save summary file
-  -d          Download tla2tools.jar and exit
-  -c          separate constants and model options into two files
+  -h, --help    show this help message and exit
+  -j CLASSPATH  Java classpath to use
+  -g            Generate TLC config files and print Java CMD strings
+  -r            Run without processing TLC output
+  -s            Do not save summary file
+  -d            Download tla2tools.jar and CommunityModules-deps.jar and exit
+  -c            separate constants and model options into two files
+  -m            Require community modules
+  -n            Not to print debug messages
 ```
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)
