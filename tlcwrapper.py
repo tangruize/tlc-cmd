@@ -368,6 +368,15 @@ class TLCConfigFile:
             spec_values = '\n'.join(spec[i] for i in spec)
             self.output_tla_options.append(spec_values)
 
+    def _parse_alias(self):
+        """parse alias section"""
+        self._add_specifications('alias', 'ALIAS', 'alias')
+        # if 'alias' in self.cfg:
+        #     self.output_cfg.append(None)
+        #     spec = self.cfg['alias']
+        #     spec_values = '\n'.join(spec[i] for i in spec)
+        #     self.output_cfg.append('{}\n{}'.format('ALIAS', spec_values))
+
     def parse(self):
         self.output_cfg.clear()
         self.output_tla_options.clear()
@@ -381,6 +390,7 @@ class TLCConfigFile:
         self._parse_state_constraint()
         self._parse_action_constraint()
         self._parse_additional_definitions()
+        self._parse_alias()
 
     def write(self):
         """write parsed buf to file"""
