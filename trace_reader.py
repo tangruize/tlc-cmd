@@ -135,7 +135,10 @@ class TraceReader:
         start_msg = 'The behavior up to this point is:'
         end_msg1 = 'Progress'
         end_msg2 = 'The number of states generated:'
+        end_msg3 = 'Worker: rmi'
         for line in f:
+            if 'TLC Server' in line:
+                continue
             if line[0] != '@':
                 start_msg = 'Error: ' + start_msg
             break
@@ -151,7 +154,7 @@ class TraceReader:
                 yield 'STATE_{} == \n'.format(n_state)
             elif line == '\n':
                 yield '\n' * 2
-            elif line.startswith(end_msg1) or line.startswith(end_msg2):
+            elif line.startswith(end_msg1) or line.startswith(end_msg2) or line.startswith(end_msg3):
                 yield '=' * 49 + '\n'
                 break
             else:
