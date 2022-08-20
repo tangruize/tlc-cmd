@@ -659,9 +659,9 @@ class TLCWrapper:
         if mem:
             direct_mem = '-XX:MaxDirectMemorySize=' + str(mem // 3 * 2) + 'm'
             xmx = '-Xmx' + str(mem // 3) + 'm'
-            self._tlc_cmd.insert(1, '-Dtlc2.tool.fp.FPSet.impl=tlc2.tool.fp.OffHeapDiskFPSet')
             self._tlc_cmd.insert(1, xmx)
             self._tlc_cmd.insert(1, direct_mem)
+            self._tlc_cmd.insert(1, '-Dtlc2.tool.fp.FPSet.impl=tlc2.tool.fp.OffHeapDiskFPSet')
 
         dump_states = opt.get('dump states')
         if dump_states:
@@ -672,8 +672,10 @@ class TLCWrapper:
 
         options_list = [opt.get('workers'), opt.getint('checkpoint minute'), opt.getint('dfs depth'),
                         not opt.getboolean('check deadlock'), opt.getint('coverage minute'),
-                        opt.getint('simulation depth'), opt.getint('simulation seed'), opt.get('recover')]
-        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed', '-recover']
+                        opt.getint('simulation depth'), opt.getint('simulation seed'), opt.get('recover'),
+                        opt.getboolean('gzip'), opt.getboolean('generate spec TE')]
+        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed', '-recover',
+                   '-gzip', '-generateSpecTE']
         for i, j in zip(options, options_list):
             if j:
                 self.options.append(i)
@@ -694,15 +696,19 @@ class TLCWrapper:
             if simulation_options_str:
                 self.options.append(simulation_options_str)
             self.simulation_mode = True
+        
+        if opt.getboolean('dump trace'):
+            self.options += ['-dumpTrace', 'tla', "MC_trace.tla", '-dumpTrace', 'json', "MC_trace.json"]
 
         if opt.get('other TLC options') is not None:
             for field in opt.get('other TLC options').split('\n'):
-                self.options.append(field)
-
-        # I forget what 'simulation actions' is ...
-        simulation_actions = opt.get('simulation actions')
-        if simulation_actions is not None and simulation_actions.lower() == 'true':
-            self._tlc_cmd.insert(1, "-Dtlc2.tool.Simulator.actionStats=true")
+                if len(field) != 0:
+                    self.options.append(field)
+        
+        if opt.get('other Java options') is not None:
+            for field in reversed(opt.get('other Java options').split('\n')):
+                if len(field) != 0:
+                    self._tlc_cmd.insert(1, field)
 
     def get_cmd_str(self):
         """get tlc command line"""
