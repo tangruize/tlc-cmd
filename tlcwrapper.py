@@ -672,8 +672,8 @@ class TLCWrapper:
 
         options_list = [opt.get('workers'), opt.getint('checkpoint minute'), opt.getint('dfs depth'),
                         not opt.getboolean('check deadlock'), opt.getint('coverage minute'),
-                        opt.getint('simulation depth'), opt.getint('simulation seed')]
-        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed']
+                        opt.getint('simulation depth'), opt.getint('simulation seed'), opt.get('recover')]
+        options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed', '-recover']
         for i, j in zip(options, options_list):
             if j:
                 self.options.append(i)
