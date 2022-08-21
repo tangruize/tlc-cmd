@@ -523,6 +523,7 @@ class TLCWrapper:
     default_mc_states = 'MC_states'
     default_mc_coverage = 'MC_coverage.txt'
     default_mc_ini = 'MC.ini'
+    default_mc_trace = 'MC_trace'
 
     task_id_number = 0
 
@@ -698,7 +699,8 @@ class TLCWrapper:
             self.simulation_mode = True
         
         if opt.getboolean('dump trace'):
-            self.options += ['-dumpTrace', 'tla', "MC_trace.tla", '-dumpTrace', 'json', "MC_trace.json"]
+            self.options += ['-dumpTrace', 'tla', self.default_mc_trace + '.tla',
+                             '-dumpTrace', 'json', self.default_mc_trace + '.json']
 
         if opt.get('other TLC options') is not None:
             for field in opt.get('other TLC options').split('\n'):
