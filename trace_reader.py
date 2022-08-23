@@ -14,6 +14,7 @@ class TraceReader:
         self._kv_inside_handler = lambda k, v: (k, v)
         self._list_handler = lambda s: s
 
+
     # find '}$])' for '{<[('
     def _find_next_match(self, string):
         level = 0
@@ -91,16 +92,17 @@ class TraceReader:
     def _parentheses(self, string):
         return self._dict_common(string, ':>', '@@', 1)
 
+
     # convert string to python variable
     def _variable_converter(self, string):
         if string[0] in self._matching:
             return self._matching[string[0]][1](string[1:-1].strip())
-        if string[0] == '"':
-            return string[1:-1]
-        if string in self._string_dict:
-            return self._string_dict[string]
         if string in self._user_dict:
             return self._user_dict[string]
+        if string in self._string_dict:
+            return self._string_dict[string]
+        if string[0] == '"':
+            return string[1:-1]
         try:
             return int(string)
         except ValueError:
@@ -133,9 +135,7 @@ class TraceReader:
 
         n_state = 0
         start_msg = 'The behavior up to this point is:'
-        end_msg1 = 'Progress'
-        end_msg2 = 'The number of states generated:'
-        end_msg3 = 'Worker: rmi'
+        end_msg = ['Progress', 'The number of states generated', 'Worker: rmi']
         for line in f:
             if 'TLC Server' in line:
                 continue
@@ -154,7 +154,7 @@ class TraceReader:
                 yield 'STATE_{} == \n'.format(n_state)
             elif line == '\n':
                 yield '\n' * 2
-            elif line.startswith(end_msg1) or line.startswith(end_msg2) or line.startswith(end_msg3):
+            elif any(line.startswith(x) for x in end_msg):
                 yield '=' * 49 + '\n'
                 break
             else:
@@ -221,10 +221,37 @@ if __name__ == '__main__':
                         help="output to json file")
     parser.add_argument('-i', dest='indent', action='store', required=False,
                         type=int, help="json file indent")
+    parser.add_argument('-p', dest='handler', action='store', required=False,
+                        help="python user_dict and list/kv handers")
     args = parser.parse_args()
 
     tr = TraceReader()
 
+    if args.handler:
+        import sys
+        import os
+
+        try:
+            sys.path.insert(1, os.path.dirname(args.handler))
+            handler_module = __import__(
+                os.path.basename(args.handler).replace('.py', ''))
+            sys.path.pop(1)
+        except ModuleNotFoundError:
+            print("Warning: cannot import module '{}'".format(args.handler),
+                  file=sys.stderr)
+            handler_module = None
+
+        if hasattr(handler_module, "user_dict"):
+            print('called', handler_module.user_dict, file=sys.stderr)
+            tr.set_user_dict(handler_module.user_dict)
+        if hasattr(handler_module, "list_handler"):
+            tr.set_list_handler(handler_module.list_handler)
+        if hasattr(handler_module, "outside_kv_handler"):
+            tr.set_kv_handler(handler_module.outside_kv_handler, inside=False)
+        if hasattr(handler_module, "inside_kv_handler"):
+            tr.set_kv_handler(handler_module.inside_kv_handler, inside=True)
+
+    # Examples:
     # set_user_dict and set_kv_handler usage example
     # tr.set_user_dict({"Nil": None})
     
