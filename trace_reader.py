@@ -3,6 +3,8 @@
 # usage: python3 trace_reader.py -h
 
 class TraceReader:
+    LIST_IS_SEQ = "seq"
+    LIST_IS_SET = "set"
 
     def __init__(self):
         self._matching = {'{': ('}', self._braces), '<': ('$', self._chevrons),
@@ -12,7 +14,7 @@ class TraceReader:
         self._user_dict = dict()
         self._kv_outside_handler = lambda k, v: (k, v)
         self._kv_inside_handler = lambda k, v: (k, v)
-        self._list_handler = lambda s: s
+        self._list_handler = lambda s, k: s
 
 
     # find '}$])' for '{<[('
@@ -30,11 +32,11 @@ class TraceReader:
         assert False
 
 
-    # < string $
-    def _chevrons(self, string):
+    # return a list
+    def _lists(self, string, kind):
         l = list()
         if not string:
-            return self._list_handler(l)
+            return self._list_handler(l, kind)
         processed, pos, length = 0, 0, len(string)
         while pos < length:
             if string[pos] in self._matching or string[pos] == ',':
@@ -46,12 +48,17 @@ class TraceReader:
             pos += 1
         if pos != processed:
             l.append(self._variable_converter(string[processed:pos]))
-        return self._list_handler(l)
+        return self._list_handler(l, kind)
+
+
+    # < string $
+    def _chevrons(self, string):
+        return self._lists(string, kind=self.LIST_IS_SEQ)
 
 
     # { string } (we treat set as list)
     def _braces(self, string):
-        return self._chevrons(string)
+        return self._lists(string, kind=self.LIST_IS_SET)
 
 
     # return a dict
@@ -242,7 +249,6 @@ if __name__ == '__main__':
             handler_module = None
 
         if hasattr(handler_module, "user_dict"):
-            print('called', handler_module.user_dict, file=sys.stderr)
             tr.set_user_dict(handler_module.user_dict)
         if hasattr(handler_module, "list_handler"):
             tr.set_list_handler(handler_module.list_handler)
