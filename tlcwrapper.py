@@ -6,6 +6,7 @@ import re
 import os
 import subprocess
 import argparse
+import signal
 
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -17,6 +18,19 @@ from collections.abc import Mapping
 
 debug = True
 
+wrapper_out_file=None
+
+def xprint(*args, **kwargs):
+    if wrapper_out_file:
+        print(*args, **kwargs, file=wrapper_out_file)
+        wrapper_out_file.flush()
+    print(*args, **kwargs)
+
+def eprint(*args, **kwargs):
+    if wrapper_out_file:
+        print(*args, **kwargs, file=wrapper_out_file)
+        wrapper_out_file.flush()
+    print(*args, **kwargs, file=sys.stderr)
 
 class PrintTable:
     """Print CSV/Markdown table"""
@@ -35,11 +49,11 @@ class PrintTable:
         table = list(table.values()) if isinstance(table, Mapping) else list(table)
         if title is None:
             title = dict(zip(table[0].keys(), table[0].keys()))
-        print(_w(sep.join(_f(map(lambda k: _t(k), title.keys())))), file=file)
+        xprint(_w(sep.join(_f(map(lambda k: _t(k), title.keys())))), file=file)
         if wrap:
-            print(_w(sep.join(_f(map(lambda k:  '---' if _t(k) else None, title.keys())))), file=file)
+            xprint(_w(sep.join(_f(map(lambda k:  '---' if _t(k) else None, title.keys())))), file=file)
         for i in table:
-            print(_w(sep.join(_f(map(lambda kd: _v(*kd), ((k, i) for k in title.keys()))))), file=file)
+            xprint(_w(sep.join(_f(map(lambda kd: _v(*kd), ((k, i) for k in title.keys()))))), file=file)
 
     @classmethod
     def print_csv_table(cls, table, title=None, file=sys.stdout, tab=False, default=''):
@@ -205,7 +219,7 @@ class TLCConfigFile:
         self.output_tla_fn = output_tla_fn
 
         if output_tla_constants_fn and not target_tla_file:
-            print('Warning:', 'both output_tla_constants_fn and target_tla_file must be set', file=sys.stderr)
+            eprint('Warning:', 'both output_tla_constants_fn and target_tla_file must be set')
             output_tla_constants_fn = None
 
         self.output_tla_constants_fn = output_tla_constants_fn
@@ -314,7 +328,7 @@ class TLCConfigFile:
                     is_model_value = True
                     value = self.model_sym_pat.match(value).groups()[0].replace(' ', '').split(',')
                     if len(value) <= 1:
-                        print('Warning: "{}: {}": <symmetrical> ignored'.format(name, constants[name]), file=sys.stderr)
+                        eprint('Warning: "{}: {}": <symmetrical> ignored'.format(name, constants[name]))
                     else:
                         is_symmetrical = True
                 elif self.model_pat.match(value):
@@ -441,7 +455,7 @@ class ReplaceInit:
                 pass
         if hasattr(self.init_module, 'init_replace_init'):
             if debug:
-                print('Debug: calling "init_replace_init"', file=sys.stderr)
+                eprint('Debug: calling "init_replace_init"')
             self.init_module.init_replace_init(self)
 
     def set_chooser_handler(self, func) -> None:
@@ -451,23 +465,23 @@ class ReplaceInit:
         try:
             from trace_reader import TraceReader
         except ModuleNotFoundError:
-            print('Warning:', 'failed to import "trace_reader",', '"init state" is disabled', file=sys.stderr)
+            eprint('Warning:', 'failed to import "trace_reader",', '"init state" is disabled')
             return ''
         tr = TraceReader()
         if hasattr(self.init_module, 'init_trace_reader'):
             if debug:
-                print('Debug: calling "init_trace_reader"', file=sys.stderr)
+                eprint('Debug: calling "init_trace_reader"')
             self.init_module.init_trace_reader(tr)
         states = list(tr.trace_reader_with_state_str(self.trace_file))
         for i, state in enumerate(states):
             chosen = self.chooser_handler(i + 1, state[0], state[1], i + 1 == len(states))
             if chosen:
                 if debug:
-                    print('Debug: choose init state: {}{}'.format(
-                        i + 1, ' (last state)' if i + 1 == len(states) else ''), file=sys.stderr)
+                    eprint('Debug: choose init state: {}{}'.format(
+                        i + 1, ' (last state)' if i + 1 == len(states) else ''))
                 return chosen
         if debug:
-            print('Debug: no init state is chosen', file=sys.stderr)
+            eprint('Debug: no init state is chosen')
         return ''
 
     def get_replaced_tla_file_lines(self, replace_str=None) -> list:
@@ -498,7 +512,7 @@ class ReplaceInit:
         with open(self.tla_file, 'w') as f:
             f.writelines(tla_lines)
         if debug:
-            print('Debug: replaced Init TLA+ file:', self.tla_file, file=sys.stderr)
+            eprint('Debug: replaced Init TLA+ file:', self.tla_file)
 
 
 class TLCWrapper:
@@ -510,7 +524,11 @@ class TLCWrapper:
     tla2tool2_jar_version = 'v1.8.0'
     community_url = 'https://github.com/tlaplus/CommunityModules/releases/download/{}/CommunityModules-deps.jar'
     community_jar_version = '202108271748'
-    tla2tools_class = 'tlc2.TLC'
+    tla2tools_tlc = 'tlc2.TLC'
+    tla2tools_server = 'tlc2.tool.distributed.TLCServer'
+    tla2tools_worker = 'tlc2.tool.distributed.TLCWorker'
+    tla2tools_fpset = 'tlc2.tool.distributed.fp.DistributedFPSet'
+    tla2tools_worker_and_fpset = 'tlc2.tool.distributed.fp.TLCWorkerAndFPSet'
 
     default_config_file = 'config.ini'  # default input file
 
@@ -524,11 +542,18 @@ class TLCWrapper:
     default_mc_coverage = 'MC_coverage.txt'
     default_mc_ini = 'MC.ini'
     default_mc_trace = 'MC_trace'
+    default_tlcwrapper_log = 'tlcwrapper.log'
 
     task_id_number = 0
 
+    # third-party scripts to run distributed mode
+    spssh_dir = os.path.join(_script_dir, 'spssh')
+    spssh_sh = os.path.join(spssh_dir, 'spssh.sh')
+    spssh_cp_sh = os.path.join(spssh_dir, 'spssh_cp.sh')
+
     def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None, gen_tla_constants_fn=None,
-                 summary=None, is_task_id=True, is_split_user_file=True, classpath='', need_community_modules=False):
+                 summary=None, is_task_id=True, is_split_user_file=True, classpath='', need_community_modules=False,
+                 log_output=False):
         """create model dir, chdir, copy files and generate tlc configfile"""
         
         # save current dir
@@ -536,6 +561,8 @@ class TLCWrapper:
 
         # default is not simulation mode
         self.simulation_mode = False
+
+        self.distributed_mode = False
 
         # open config file
         config_file = config_file if config_file is not None else self.default_config_file
@@ -548,7 +575,7 @@ class TLCWrapper:
         self.cfg.read_string(config_str)
 
         if 'options' not in self.cfg:
-            print('Error: config file has no "options" section, run "python3 {} -h" for help'.format(sys.argv[0]))
+            xprint('Error: config file has no "options" section, run "python3 {} -h" for help'.format(sys.argv[0]))
             raise ValueError('config file has no "options" section')
 
         # check dependencies and set classpath
@@ -557,11 +584,13 @@ class TLCWrapper:
         if not classpath:
             classpath = self.tla2tools_jar
         else:
+            classpath = ':'.join([os.path.realpath(i) for i in classpath.split(':')])
             classpath = '{}:{}'.format(classpath, self.tla2tools_jar)
         self.need_community_modules = need_community_modules
         if need_community_modules:
             classpath = '{}:{}'.format(classpath, self.community_jar)
-        self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', classpath, self.tla2tools_class]
+        self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', classpath]
+        self.classpath = classpath
 
         # open log file
         if isinstance(log_file, str):  # if log_file specified, open it before change cwd
@@ -582,6 +611,11 @@ class TLCWrapper:
         os.chdir(self.orig_cwd)
         need_separate_constants = self._parse_init_state(os.path.join(model_dir, os.path.basename(target)))
         os.chdir(model_dir)
+
+        # set log_output file
+        if log_output:
+            global wrapper_out_file
+            wrapper_out_file = open(self.default_tlcwrapper_log, 'w')
 
         # check and open log file again
         if log_file:
@@ -608,6 +642,10 @@ class TLCWrapper:
 
         # set Java and TLC options
         self.options = []
+        # distributed mode slave cmds
+        self.cmd_workers = []
+        self.cmd_fpsets = []
+        self.cmd_workers_fpsets = []
         self.is_split_user_file = is_split_user_file
         self._parse_options()
 
@@ -621,9 +659,14 @@ class TLCWrapper:
         self.init_result()
         self.summary = summary if summary is not None else Summary()
 
+
     def __del__(self):
         if hasattr(self, 'log_file') and hasattr(self.log_file, 'close'):
             self.log_file.close()
+        global wrapper_out_file
+        if hasattr(wrapper_out_file, 'close'):
+            wrapper_out_file.close()
+            wrapper_out_file = None
         os.chdir(self.orig_cwd)
 
     def _parse_init_state(self, tla_file):
@@ -642,9 +685,58 @@ class TLCWrapper:
     def _parse_options(self):
         """parse options section"""
         self.options = [self.gen_tla_fn, '-config', self.gen_cfg_fn]
+        opt = self.cfg['options']
+
+        def _parse_workers(opt_name, opt_list, class_name):
+            client_opt = opt.get(opt_name)
+            if not client_opt:
+                return
+            clients = client_opt.splitlines()
+            for c in clients:
+                args = self._tlc_cmd.copy()
+                args[-1] = ':'.join([os.path.basename(i) for i in args[-1].split(':')])
+                args[-1] = os.path.basename(self.tla2tools_jar)
+                if self.need_community_modules:
+                    args[-1] += ':' + os.path.basename(self.community_jar)
+                args.append(class_name)
+                args.append(server_name)
+                c_opts = c.strip().split()
+                _, c_name = c_opts[0].split('@')
+                args.insert(1, '-Djava.rmi.server.hostname=' + c_name)
+                mem = 0
+                if len(c_opts) >= 2:
+                    mem = float(c_opts[1])
+                    if mem > 1:
+                        mem = int(mem)
+                    direct_mem_arg = '-XX:MaxDirectMemorySize=${DIRECT_MEM}m'
+                    xmx_mem_arg = '-Xmx${XMX_MEM}m'
+                    args.insert(1, xmx_mem_arg)
+                    args.insert(1, direct_mem_arg)
+                    args.insert(1, '-Dtlc2.tool.fp.FPSet.impl=tlc2.tool.fp.OffHeapDiskFPSet')
+                    if len(c_opts) >= 3:
+                        args.insert(1, '-Dtlc2.tool.distributed.TLCWorker.threadCount=' + c_opts[2])
+                opt_list.append((c_opts[0], mem, args))
+
+        if opt.get('distributed mode') and opt.get('distributed mode').lower() != 'false':
+            server_name = opt.get('distributed mode')
+            self.distributed_mode = True
+            _parse_workers('distributed TLC workers', self.cmd_workers, self.tla2tools_worker)
+            _parse_workers('distributed fingerprint server', self.cmd_fpsets, self.tla2tools_fpset)
+            _parse_workers('distributed TLC and fingerprint', self.cmd_workers_fpsets, self.tla2tools_worker_and_fpset)
+            self._tlc_cmd.insert(1, '-Dtlc2.tool.distributed.TLCServer.expectedFPSetCount={}'.format(
+                len(self.cmd_fpsets) + len(self.cmd_workers_fpsets)))
+            self.is_split_user_file = False
+            self._tlc_cmd.append(self.tla2tools_server)
+            if server_name.lower() != 'true':
+                self._tlc_cmd.insert(1, '-Djava.rmi.server.hostname=' + server_name)
+        else:
+            self._tlc_cmd.append(self.tla2tools_tlc)
+        
         if self.is_split_user_file:
             self.options += ['-userFile', self.default_mc_user]
-        opt = self.cfg['options']
+        
+        if opt.get('stop after'):
+            self._tlc_cmd.insert(1, '-Dtlc2.TLC.stopAfter=' + opt.get('stop after'))
 
         mem = None
         mem_ratio = opt.getfloat('memory ratio')
@@ -654,7 +746,7 @@ class TLCWrapper:
                 mem = int(virtual_memory().total / 1024 / 1024 * mem_ratio)
             except ImportError:
                 mem = None
-                print('Warning:', 'failed to import "psutil",', '"memory ratio" is disabled', file=sys.stderr)
+                eprint('Warning:', 'failed to import "psutil",', '"memory ratio" is disabled')
         if mem is None:
             mem = opt.getint('system memory')
         if mem:
@@ -714,19 +806,56 @@ class TLCWrapper:
 
     def get_cmd_str(self):
         """get tlc command line"""
-        return 'cd {}\n{}'.format(os.getcwd(), ' '.join(i for i in chain(self._tlc_cmd, self.options)))
+        result = 'cd {}\n{}'.format(os.getcwd(), ' '.join(i for i in chain(self._tlc_cmd, self.options)))
+        if self.distributed_mode:
+            result += '\n' + '\n'.join(self.get_distributed_workers_cmd()[0])
+        return result
 
     def get_cmd_options(self):
         """get tlc command line list"""
         return os.getcwd(), self._tlc_cmd + self.options
+
+    def get_distributed_workers_cmd(self):
+        """get a list a cmd that workers run"""
+        cmds = []
+        index = 0
+        mem_options = []
+        client_run_cmds = []
+        clients = []
+        for i in self.cmd_workers, self.cmd_fpsets, self.cmd_workers_fpsets:
+            for j in i:
+                index += 1
+                cmds.append("# cat <<'EOF' | ssh {} 'export SSH_NO={}; exec $SHELL'".format(j[0], index))
+                mem_options.append(j[1])
+                client_run_cmds.append(' '.join(j[-1]))
+                clients.append(j[0])
+        cmds.append('MEM_OPTIONS=(_ {})'.format(' '.join(str(i) for i in mem_options)))
+        cmds.append('MY_MEM=${MEM_OPTIONS[$SSH_NO]}')
+        cmds.append('''function set_memory() {
+    if [ "$MY_MEM" != 0 ]; then
+        if [[ "$MY_MEM" =~ 0\\. ]]; then
+            MEM_TOTAL=$(($(sed -En '/MemTotal/s/.*[ ]+([0-9]+).*/\\1/p' </proc/meminfo)/1024))
+            MY_MEM=$(awk "BEGIN {printf \\"%.0f\\",$MY_MEM*$MEM_TOTAL}")
+        fi
+        DIRECT_MEM=$((MY_MEM/3*2))
+        XMX_MEM=$((MY_MEM/3))
+    fi
+}''')
+        cmds.append("set_memory")
+        cmds.append('CMDS=(_\n {})'.format('\n '.join(['"{}"'.format(i) for i in client_run_cmds])))
+        cmds.append("set -x; eval '${CMDS[$SSH_NO]}'")
+        cmds.append('EOF')
+        return cmds, clients
 
     def raw_run(self):
         """directly call tlc program without analysing the output"""
         self.download_dependencies()
         options = self._tlc_cmd + self.options
         if debug:
-            print('Debug: cwd:', os.getcwd(), file=sys.stderr)
-            print('Debug: cmd:', options, file=sys.stderr)
+            eprint('Debug: cwd:', os.getcwd())
+            eprint('Debug: cmd:', options)
+        if self.distributed_mode:
+            self.run_distributed_workers()
         subprocess.call(options)
 
     def init_result(self):
@@ -753,12 +882,12 @@ class TLCWrapper:
                 if version_numbers(version) < version_numbers(default_version):
                     version = default_version
                 if debug:
-                    print('Debug: downloading:', url.format(version), file=sys.stderr)
+                    eprint('Debug: downloading:', url.format(version))
                 r = requests.get(url.format(version), allow_redirects=True)
                 with open(target, 'wb') as f:
                     f.write(r.content)
             except Exception as e:
-                print('Error:', 'failed to download "{}", you should download it manually'.format(
+                xprint('Error:', 'failed to download "{}", you should download it manually'.format(
                     os.path.basename(target)))
                 raise e
 
@@ -776,6 +905,34 @@ class TLCWrapper:
         self.download_tla2tools()
         if self.need_community_modules:
             self.download_community_modules()
+    
+    def run_distributed_workers(self):
+        if not self.distributed_mode:
+            return
+        xprint('-' * 16)
+        if all(os.path.isfile(i) for i in [self.spssh_sh, self.spssh_cp_sh]):
+            cmds, clients = self.get_distributed_workers_cmd()
+            client_cmd_str = '\n'.join([ i for i in cmds if not i.startswith('#') ])
+            host_cmd_str = "tmux split-window -d -t 0 'exec tail -f -n +1 {}'; exec tail -f -n +1 {}".format(
+                self.default_mc_log, self.default_tlcwrapper_log)
+            jar_dir = os.path.dirname(self.classpath.split(':')[0])
+            run_spssh_cmd = \
+                """cat <<'EOF' | {} -f '-maxdepth 1 -name \\*.jar' {} 2>/dev/null | {} -t -e -r "{}" {} 2>&1\n""" \
+                .format(self.spssh_cp_sh, jar_dir, self.spssh_sh, host_cmd_str, ' '.join(clients))
+            run_spssh_cmd += "cd {}\n".format(os.path.basename(jar_dir))
+            run_spssh_cmd += client_cmd_str + '\n'
+            if debug:
+                eprint('Debug:', 'popen cmd:\n{}'.format(run_spssh_cmd))
+            output = os.popen(run_spssh_cmd).read()
+            if output and debug:
+                eprint('Debug:', 'popen cmd output:\n{}'.format(output))
+            xprint('Run "tmux attach-session -t {}" to check workers progress'.format(
+                re.sub(r'.*\n.*SESSION=(.*)\n', r'\1', output)))
+        else:
+            xprint('Run below commands on clients:')
+            for i, _ in self.get_distributed_workers_cmd():
+                xprint(i)
+        xprint('-' * 16)
 
     def run(self):
         """call tlc and analyse output"""
@@ -794,8 +951,8 @@ class TLCWrapper:
             if all(i is not None for i in value_list):
                 if not title_printed:
                     title_printed = True
-                    print(('{:<16}' * len(title_list)).format(*title_list))
-                print(('{:<16}' * len(value_list)).format(*value_list))
+                    xprint(('{:<16}' * len(title_list)).format(*title_list))
+                xprint(('{:<16}' * len(value_list)).format(*value_list))
                 for k, v in zip(title_list, value_list):
                     self.summary.add_info(k, v)
 
@@ -803,26 +960,38 @@ class TLCWrapper:
         # finish_pat = re.compile(r'(\d+) states generated, (\d+) distinct states found, (\d+) states left on queue')
 
         tmp_lines = []
-        message_code = -1  # see https://github.com/jameshfisher/tlaplus/blob/master/tlatools/src/tlc2/output/EC.java
-        message_type = -1  # see https://github.com/jameshfisher/tlaplus/blob/master/tlatools/src/tlc2/output/MP.java
+        message_code = -1  # see https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tlc2/output/EC.java
+        message_type = -1  # see https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tlc2/output/MP.java
         message_type_key = ('info', 'errors', 'tlc bug', 'warnings', 'error trace', 'other msg')
+        finish_flag = False
+        interrupt_flag = False
+
+        def int_handler(sig, frame):
+            nonlocal interrupt_flag
+            interrupt_flag = True
+        
+        signal.signal(signal.SIGINT, int_handler)
 
         def process_message():
             if len(tmp_lines) == 0:
                 return
             line = '\n'.join(tmp_lines)
             self.result[message_type_key[message_type]].append((datetime.now(), line))
+            # if message_type_key[message_type] in {'errors', 'warnings'}:
+            #     xprint('Error:' if message_type_key[message_type] == 'errors' else 'Warning:', line)
             if message_code == 2185:  # Starting...
                 self.result['start time'] = datetime.strptime(line, 'Starting... (%Y-%m-%d %H:%M:%S)')
             elif message_code == 2186:  # Finished in...
                 self.result['finish time'] = datetime.strptime(line.split('at')[1], ' (%Y-%m-%d %H:%M:%S)')
                 self.result['time consuming'] = self.result['finish time'] - self.result['start time']
+                nonlocal finish_flag
+                finish_flag = True
                 # print_state(self.result['time consuming'])
             elif message_code == 2200 or message_code == 2209:  # Progress...
                 progress_match = progress_pat.match(line)
                 if not progress_match:
                     if debug:
-                        print('Debug:', 'Please report this bug: match failed: "{}".'.format(line), file=sys.stderr)
+                        eprint('Debug:', 'Please report this bug: match failed: "{}".'.format(line))
                 else:
                     groups = progress_match.groups()
                     self.result['diameter'] = int(groups[0].replace(',', ''))
@@ -856,8 +1025,8 @@ class TLCWrapper:
 
         options = self._tlc_cmd + self.options + ['-tool']  # tool mode
         if debug:
-            print('Debug: cwd:', os.getcwd(), file=sys.stderr)
-            print('Debug: cmd:', options, file=sys.stderr)
+            eprint('Debug: cwd:', os.getcwd())
+            eprint('Debug: cmd:', options)
         self.download_dependencies()
 
         with open(self.default_mc_ini, 'a') as f:
@@ -865,9 +1034,13 @@ class TLCWrapper:
             f.write('\n; CMD: {}\n; START TIME: {}\n'.format(options, cur_time))
             self.summary.add_info('Start Time', cur_time)
             process = subprocess.Popen(options, stdout=subprocess.PIPE, universal_newlines=True)
+            if debug:
+                eprint('Debug:', 'JAVA PID: {}'.format(process.pid))
             cur_time = datetime.now()
             self.summary.add_info('End Time', cur_time)
             # f.write('; END TIME: {}\n'.format(cur_time))
+
+        self.run_distributed_workers()
 
         for msg_line in iter(process.stdout.readline, ''):
             if msg_line == '':  # sentinel
@@ -887,6 +1060,8 @@ class TLCWrapper:
                 tmp_lines = []
             else:
                 tmp_lines.append(msg_line)
+            if (finish_flag == True and self.distributed_mode == True) or interrupt_flag:
+                process.terminate()
 
         exit_state = process.poll()
         self.result['exit state'] = 0 if exit_state is None else exit_state
@@ -924,33 +1099,37 @@ class TLCWrapper:
                 f.write('\n'.join(self.result['coverage']))
                 f.write('\n')
 
+    def print_result(self):
+        for _, msg in self.result['warnings']:
+            xprint('Warning: ' + msg)
+        for _, msg in self.result['errors']:
+            xprint('Error: ' + msg)
+        for _, msg in self.result['error trace']:
+            xprint(msg)
+        xprint('Status: errors: {}, warnings: {}, exit_state: {}'.format(
+            len(self.result['errors']), len(self.result['warnings']), self.result['exit state']))
 
-def main(config_file, summary_file=None, separate_constants=None, classpath='', need_community_modules=False):
+
+def main(config_file, summary_file=None, separate_constants=None, classpath='', need_community_modules=False,
+         log_output=False):
     summary = Summary()
     options = tuple()
     for options, config_stringio in BatchConfig(config_file, summary).get():
-        print('\n{}'.format('#' * 16))
-        if options:
-            print('Options:')
-            for i in options:
-                print(' ', i.replace('\n', '\n  '))
-            print('-' * 16)
+        xprint('\n{}'.format('#' * 16))
         tlc = TLCWrapper(config_stringio, summary=summary, gen_tla_constants_fn=separate_constants,
-            classpath=classpath, need_community_modules=need_community_modules)
-        result = tlc.run()
-        print('-' * 16)
-        for _, msg in result['warnings']:
-            print('Warning: ' + msg)
-        for _, msg in result['errors']:
-            print('Error: ' + msg)
-        for _, msg in result['error trace']:
-            print(msg)
-        print('Status: errors: {}, warnings: {}, exit_state: {}'.format(
-            len(result['errors']), len(result['warnings']), result['exit state']))
+            classpath=classpath, need_community_modules=need_community_modules, log_output=log_output)
+        if options:
+            xprint('Options:')
+            for i in options:
+                xprint(' ', i.replace('\n', '\n  '))
+            xprint('-' * 16)
+        tlc.run()
+        xprint('-' * 16)
+        tlc.print_result()
         summary.finish_current()
         del tlc
-    print('=' * 16)
-    print(summary)
+    xprint('=' * 16)
+    xprint(summary)
     if summary_file or (summary_file is None and options):
         if isinstance(summary_file, str):
             name = summary_file
@@ -966,7 +1145,7 @@ def raw_run(config_file, is_print_cmd=False, separate_constants=None, classpath=
         tlc = TLCWrapper(config_stringio, log_file=None, is_split_user_file=False,
             gen_tla_constants_fn=separate_constants, classpath=classpath, need_community_modules=need_community_modules)
         if is_print_cmd:
-            print(tlc.get_cmd_str())
+            xprint(tlc.get_cmd_str())
         else:
             tlc.raw_run()
         del tlc
@@ -993,6 +1172,8 @@ if __name__ == '__main__':
                         help='Require community modules')
     parser.add_argument('-n', dest='no_debug', action='store_true', required=False,
                         help='Not to print debug messages')
+    parser.add_argument('-o', dest='log_output', action='store_true', required=False,
+                        help='Write tlcwrapper output to '+TLCWrapper.default_tlcwrapper_log)
 
     args = parser.parse_args()
 
@@ -1012,4 +1193,4 @@ if __name__ == '__main__':
             classpath=args.classpath, need_community_modules=args.community_modules)
     else:
         main(args.config_ini, not args.no_summary, separate_constants=args.separate_constants,
-            classpath=args.classpath, need_community_modules=args.community_modules)
+            classpath=args.classpath, need_community_modules=args.community_modules, log_output=args.log_output)

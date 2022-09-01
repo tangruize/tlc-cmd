@@ -1,0 +1,3 @@
+[submodule "spssh"]
+	path = spssh
+	url = https://github.com/tangruize/spssh.git
