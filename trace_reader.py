@@ -6,7 +6,7 @@ class TraceReader:
     LIST_IS_SEQ = "seq"
     LIST_IS_SET = "set"
 
-    def __init__(self):
+    def __init__(self, save_action_name=False):
         self._matching = {'{': ('}', self._braces), '<': ('$', self._chevrons),
             '[': (']', self._brackets), '(': (')', self._parentheses)}
 
@@ -15,6 +15,7 @@ class TraceReader:
         self._kv_outside_handler = lambda k, v: (k, v)
         self._kv_inside_handler = lambda k, v: (k, v)
         self._list_handler = lambda s, k: s
+        self.save_action_name = save_action_name
 
 
     # find '}$])' for '{<[('
@@ -171,6 +172,15 @@ class TraceReader:
         f.close()
 
 
+    @staticmethod
+    def get_action_name(line):
+        start = line.find('<')
+        end = line.find(' ', start)
+        if end > start > 0:
+            return line[start+1:end]
+        return None
+
+
     # read trace file and yield states as python objects
     def trace_reader_with_state_str(self, file):
         if not hasattr(file, 'read'):
@@ -184,14 +194,20 @@ class TraceReader:
         state = dict()
         variable = ""
         lines = []
+        cur_action = None
+        cur_action_line = None
         for line in f:
-            if line[0] in "-=S":
+            if line.startswith(r'\*'):
+                cur_action_line = line
+                if self.save_action_name:
+                    cur_action = self.get_action_name(line)
+            elif line[0] in "-=S":
                 if state:
-                    # states.append(state)
                     yield state, ''.join(lines).strip()
                     state = dict()
-                    lines = []
-                continue
+                if cur_action is not None:
+                    state['_action'] = cur_action
+                lines = [] if cur_action_line is None else [cur_action_line]
             elif line[0] in "/\n":
                 if variable:
                     k, v = variable.split('=')
@@ -230,9 +246,11 @@ if __name__ == '__main__':
                         type=int, help="json file indent")
     parser.add_argument('-p', dest='handler', action='store', required=False,
                         help="python user_dict and list/kv handers")
+    parser.add_argument('-a', dest='action', action='store_true', required=False,
+                        help="save action name in '_action' key if available")
     args = parser.parse_args()
 
-    tr = TraceReader()
+    tr = TraceReader(args.action)
 
     if args.handler:
         import sys

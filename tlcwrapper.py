@@ -706,7 +706,7 @@ class TLCWrapper:
                 mem = 0
                 if len(c_opts) >= 2:
                     mem = float(c_opts[1])
-                    if mem > 1:
+                    if mem >= 1:
                         mem = int(mem)
                     direct_mem_arg = '-XX:MaxDirectMemorySize=${DIRECT_MEM}m'
                     xmx_mem_arg = '-Xmx${XMX_MEM}m'
@@ -825,7 +825,7 @@ class TLCWrapper:
         for i in self.cmd_workers, self.cmd_fpsets, self.cmd_workers_fpsets:
             for j in i:
                 index += 1
-                cmds.append("# cat <<'EOF' | ssh {} 'export SSH_NO={}; exec $SHELL'".format(j[0], index))
+                cmds.append("# cat <<'EOF' | ssh {} 'export SSH_NO={}; exec bash'".format(j[0], index))
                 mem_options.append(j[1])
                 client_run_cmds.append(' '.join(j[-1]))
                 clients.append(j[0])
