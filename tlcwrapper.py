@@ -917,7 +917,7 @@ class TLCWrapper:
                 self.default_mc_log, self.default_tlcwrapper_log)
             jar_dir = os.path.dirname(self.classpath.split(':')[0])
             run_spssh_cmd = \
-                """cat <<'EOF' | {} -f '-maxdepth 1 -name \\*.jar' {} 2>/dev/null | {} -t -e -r "{}" {} 2>&1\n""" \
+                """cat <<'EOF' | {} -f '-maxdepth 1 -name \\*.jar' {} 2>/dev/null | {} -t -s -e -r "{}" {} 2>&1\n""" \
                 .format(self.spssh_cp_sh, jar_dir, self.spssh_sh, host_cmd_str, ' '.join(clients))
             run_spssh_cmd += "cd {}\n".format(os.path.basename(jar_dir))
             run_spssh_cmd += client_cmd_str + '\n'
