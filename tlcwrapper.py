@@ -612,6 +612,10 @@ class TLCWrapper:
         need_separate_constants = self._parse_init_state(os.path.join(model_dir, os.path.basename(target)))
         os.chdir(model_dir)
 
+        # gitignore all generated files
+        with open('.gitignore', 'w') as gitignore_f:
+            gitignore_f.write('*\n')
+
         # set log_output file
         if log_output:
             global wrapper_out_file
