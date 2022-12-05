@@ -772,9 +772,10 @@ class TLCWrapper:
         options_list = [opt.get('workers'), opt.getint('checkpoint minute'), opt.getint('dfs depth'),
                         not opt.getboolean('check deadlock'), opt.getint('coverage minute'),
                         opt.getint('simulation depth'), opt.getint('simulation seed'), opt.get('recover'),
-                        opt.getboolean('gzip'), opt.getboolean('generate spec TE')]
+                        opt.getboolean('gzip'), opt.getboolean('generate spec TE'), opt.getboolean('clean up'),
+                        opt.get('liveness check'), opt.getboolean('diff trace')]
         options = ['-workers', '-checkpoint', '-dfid', '-deadlock', '-coverage', '-depth', '-seed', '-recover',
-                   '-gzip', '-generateSpecTE']
+                   '-gzip', '-generateSpecTE', '-cleanup', '-lncheck', '-difftrace']
         for i, j in zip(options, options_list):
             if j:
                 self.options.append(i)
@@ -923,7 +924,7 @@ class TLCWrapper:
                 self.default_mc_log, self.default_tlcwrapper_log)
             jar_dir = os.path.dirname(self.classpath.split(':')[0])
             run_spssh_cmd = \
-                """cat <<'EOF' | {} -f '-maxdepth 1 -name \\*.jar' {} 2>/dev/null | {} -t -s -e -r "{}" {} 2>&1\n""" \
+                """cat <<'EOF' | {} -f '-maxdepth 1 -name \\*.jar' {} 2>/dev/null | {} -H -S -b -t -s -e -r "{}" {} 2>&1\n""" \
                 .format(self.spssh_cp_sh, jar_dir, self.spssh_sh, host_cmd_str, ' '.join(clients))
             run_spssh_cmd += "cd {}\n".format(os.path.basename(jar_dir))
             run_spssh_cmd += client_cmd_str + '\n'
@@ -1175,7 +1176,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
                         help="Download tla2tools.jar and CommunityModules-deps.jar and exit", default=False)
     parser.add_argument('-c', dest='separate_constants', action='store_true', required=False,
-                        help="separate constants and model options into two files", default=False)
+                        help="Separate constants and model options into two files", default=False)
     parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
                         help='Configuration file (if not presented, stdin is used)')
     parser.add_argument('-m', dest='community_modules', action='store_true', required=False,

@@ -4,7 +4,7 @@
 from setuptools import setup
 
 setup(name='tlccmd',
-    version='1.0',
+    version='1.0.1',
     author='Ruize Tang',
     author_email='tangruize97@gmail.com',
     url='https://github.com/tangruize/tlc-cmd',
