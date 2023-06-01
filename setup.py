@@ -4,7 +4,7 @@
 from setuptools import setup
 
 setup(name='tlccmd',
-    version='1.0.1',
+    version='1.0.2',
     author='Ruize Tang',
     author_email='tangruize97@gmail.com',
     url='https://github.com/tangruize/tlc-cmd',
@@ -19,7 +19,7 @@ setup(name='tlccmd',
     package_data = {
         '':['*.ini']
     },
-    install_requires=['requests', 'psutil'],
+    install_requires=['requests', 'psutil', 'inotify'],
     python_requires='>=3',
     scripts=['tlcwrapper.py', 'trace_reader.py']
 )
