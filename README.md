@@ -13,7 +13,7 @@ Features:
 
 ## Dependencies
 
-python3+, Java 8+
+python3+, Java 11+
 
 Optional modules:
 
@@ -28,7 +28,7 @@ git submodule update --init --recursive  # for distributed mode
 ### tlcwrapper.py
 
 ```txt
-usage: tlcwrapper.py [-h] [-j CLASSPATH] [-g] [-r] [-s] [-d] [-c] [-m] [-n] [-o] [config.ini]
+usage: tlcwrapper.py [-h] [-j CLASSPATH] [-g] [-r] [-s] [-d] [-c] [-m] [-n] [config.ini]
 
 Run TLC in CMD
 
@@ -45,7 +45,6 @@ options:
   -c            Separate constants and model options into two files
   -m            Require community modules
   -n            Not to print debug messages
-  -o            Write tlcwrapper output to tlcwrapper.log
 ```
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)
@@ -54,7 +53,6 @@ New features:
 
 - `-c` separates constants module and auto extends it in your spec,
   so that you can use the values of `set of model values` in your spec.
-- `-o` saves tlcwrapper output.
 - distributed mode: easily run distributed mode with the [spssh](https://github.com/tangruize/spssh/) scripts.
   Just configure SSH no password login to worker nodes.
 

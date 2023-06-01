@@ -19,7 +19,7 @@ setup(name='tlccmd',
     package_data = {
         '':['*.ini']
     },
-    install_requires=['requests', 'psutil', 'inotify'],
+    install_requires=['requests', 'psutil'],
     python_requires='>=3',
     scripts=['tlcwrapper.py', 'trace_reader.py']
 )
