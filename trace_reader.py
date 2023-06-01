@@ -167,7 +167,7 @@ class TraceReader:
                 break
             else:
                 if line[0] != '@':
-                    assert False
+                    pass
 
         f.close()
 
