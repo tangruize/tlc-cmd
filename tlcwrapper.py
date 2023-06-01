@@ -967,7 +967,7 @@ class TLCWrapper:
                 for k, v in zip(title_list, value_list):
                     self.summary.add_info(k, v)
 
-        progress_pat = re.compile(r'Progress\(%?([\d,]+)%?\) at (.*): ([\d,]+) s.*, (-?[\d,]+) d.*, (-?[\d,]+) s')
+        progress_pat = re.compile(r'Progress\(%?(-?[\d,]+)%?\) at (.*): ([\d,]+) s.*, (-?[\d,]+) d.*, (-?[\d,]+) s')
         # finish_pat = re.compile(r'(\d+) states generated, (\d+) distinct states found, (\d+) states left on queue')
 
         tmp_lines = []
@@ -998,7 +998,7 @@ class TLCWrapper:
                 nonlocal finish_flag
                 finish_flag = True
                 # print_state(self.result['time consuming'])
-            elif message_code == 2200 or message_code == 2209:  # Progress...
+            elif message_code in {2200, 2206, 2209}:  # Progress...
                 progress_match = progress_pat.match(line)
                 if not progress_match:
                     if debug:
