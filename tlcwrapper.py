@@ -1183,8 +1183,6 @@ if __name__ == '__main__':
                         help='Require community modules')
     parser.add_argument('-n', dest='no_debug', action='store_true', required=False,
                         help='Not to print debug messages')
-    parser.add_argument('-o', dest='log_output', action='store_true', required=False,
-                        help='Write tlcwrapper output to '+TLCWrapper.default_tlcwrapper_log)
 
     args = parser.parse_args()
 
@@ -1204,4 +1202,4 @@ if __name__ == '__main__':
             classpath=args.classpath, need_community_modules=args.community_modules)
     else:
         main(args.config_ini, not args.no_summary, separate_constants=args.separate_constants,
-            classpath=args.classpath, need_community_modules=args.community_modules, log_output=args.log_output)
+            classpath=args.classpath, need_community_modules=args.community_modules, log_output=True)
