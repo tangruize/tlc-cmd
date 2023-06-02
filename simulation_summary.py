@@ -12,7 +12,8 @@ from trace_reader import TraceReader
 break_inotify = False
 
 def sigint_handler(signum, frame):
-    print('Caught SIGINT, Ctrl+C again to exit')
+    global break_inotify
+    print('Caught SIGINT, stopping inotify. Press Ctrl+C again to exit')
     break_inotify = True
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -48,44 +49,49 @@ def process_file(fn, delete=False):
 
 
 prev_time = 0
+no_print_diameters = False
+no_print_actions = False
 def print_progress(period=5):
     global prev_time
     current_time = time.time()
     if current_time - prev_time >= period:
-        print()
+        if not no_print_diameters or not no_print_actions:
+            print()
         print('Processed: {}, total states: {}, distinct states: {}'.format(len(processed_files_set), total_states, len(states)))
-        print('Diameters:')
-        for k in diameters:
-            print(' ', k, ':', diameters[k])
-        print('Actions:')
-        for k in distinct_actions:
-            print(' ', k, ':', distinct_actions[k], '/', total_actions[k])
+        if not no_print_diameters:
+            print('Diameters:')
+            for key, value in sorted(diameters.items(), key=lambda x: x[0]):
+                print("  {} : {}".format(key, value))
+        if not no_print_actions:
+            print('Actions:')
+            for k in distinct_actions:
+                print(' ', k, ':', distinct_actions[k], '/', total_actions[k])
         prev_time = current_time
 
 def is_trace_file(fn):
     return fn.startswith("trace_") or fn == finish_file
 
 def iterate_dir(trace_dir, use_inotify=True, delete=False):
+    global break_inotify
     os.chdir(trace_dir)
     if use_inotify:
         i = inotify.adapters.Inotify()
         i.add_watch('.')
         while True:
-            event = None
-
             for event in i.event_gen(yield_nones=False, timeout_s=1):
                 (_, type_names, _, filename) = event
-                event = None
                 if type_names == ['IN_CLOSE_WRITE']:
                     if not is_trace_file(filename) and filename != finish_file:
                         continue
                     process_file(filename, delete=delete)
                     print_progress()
-                    if filename == finish_file or break_inotify:
-                        event = ""
+                    if filename == finish_file:
+                        break_inotify = True
                         break
+                if break_inotify:
+                    break
             print_progress()
-            if event is not None:
+            if break_inotify:
                 break
     file_list = set([i for i in os.listdir() if is_trace_file(i) or i == finish_file]) - processed_files_set
     for i in file_list:
@@ -97,8 +103,14 @@ if __name__ == '__main__':
     parser.add_argument(dest='trace_dir', action='store', help='Trace dir')
     parser.add_argument('-r', dest='remove', action='store_true', help='Remove processed files')
     parser.add_argument('-i', dest='iterate', action='store_true', help='Iterate dir instead of using inotify')
+    parser.add_argument('-D', dest='no_diameters', action='store_true', help='Not to print diameters')
+    parser.add_argument('-A', dest='no_actions', action='store_true', help='Not to print actions')
     arg_parser = parser.parse_args()
+    if arg_parser.no_diameters:
+        no_print_diameters = True
+    if arg_parser.no_actions:
+        no_print_actions = True
     if not arg_parser.iterate:
         signal.signal(signal.SIGINT, sigint_handler)
     iterate_dir(arg_parser.trace_dir, not arg_parser.iterate, arg_parser.remove)
-
+    print_progress(period=0)

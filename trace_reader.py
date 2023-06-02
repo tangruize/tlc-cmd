@@ -158,6 +158,7 @@ class TraceReader:
             if line[0] in '/ ':
                 yield line
             elif line.startswith('State') or line[0].isdigit():
+                yield r'\*' + line[line.find(':')+1:]
                 n_state = n_state + 1
                 yield 'STATE_{} == \n'.format(n_state)
             elif line == '\n':
