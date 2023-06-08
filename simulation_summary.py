@@ -17,7 +17,7 @@ def sigint_handler(signum, frame):
     break_inotify = True
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-tr = TraceReader(True)
+tr = TraceReader(save_action_name=True, hashable=True)
 finish_file = "MC.out"
 processed_files_set = set()
 total_states = 0
@@ -34,7 +34,7 @@ def process_file(fn, delete=False):
         diameter += 1
         action = state['_action']
         state['_action'] = 0
-        state_hash = hash(str(state))
+        state_hash = hash(state)
         if state_hash not in states:
             states.add(state_hash)
             distinct_states += 1
@@ -103,8 +103,8 @@ if __name__ == '__main__':
     parser.add_argument(dest='trace_dir', action='store', help='Trace dir')
     parser.add_argument('-r', dest='remove', action='store_true', help='Remove processed files')
     parser.add_argument('-i', dest='iterate', action='store_true', help='Iterate dir instead of using inotify')
-    parser.add_argument('-D', dest='no_diameters', action='store_true', help='Not to print diameters')
-    parser.add_argument('-A', dest='no_actions', action='store_true', help='Not to print actions')
+    parser.add_argument('-D', dest='no_diameters', action='store_true', help='Not to print diameters in progress')
+    parser.add_argument('-A', dest='no_actions', action='store_true', help='Not to print actions in progress')
     arg_parser = parser.parse_args()
     if arg_parser.no_diameters:
         no_print_diameters = True
@@ -113,4 +113,5 @@ if __name__ == '__main__':
     if not arg_parser.iterate:
         signal.signal(signal.SIGINT, sigint_handler)
     iterate_dir(arg_parser.trace_dir, not arg_parser.iterate, arg_parser.remove)
+    no_print_diameters, no_print_actions = False, False
     print_progress(period=0)

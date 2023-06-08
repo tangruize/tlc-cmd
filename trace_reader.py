@@ -2,11 +2,14 @@
 
 # usage: python3 trace_reader.py -h
 
+from collections import OrderedDict
+
 class TraceReader:
     LIST_IS_SEQ = "seq"
     LIST_IS_SET = "set"
 
-    def __init__(self, save_action_name=False):
+    def __init__(self, save_action_name=False,
+                 hashable=False, sort_dict=False):
         self._matching = {'{': ('}', self._braces), '<': ('$', self._chevrons),
             '[': (']', self._brackets), '(': (')', self._parentheses)}
 
@@ -16,6 +19,10 @@ class TraceReader:
         self._kv_inside_handler = lambda k, v: (k, v)
         self._list_handler = lambda s, k: s
         self.save_action_name = save_action_name
+        self.sort_dict = sort_dict
+        self.hashable = hashable
+        if self.hashable:
+            self.sort_dict = True
 
 
     # find '}$])' for '{<[('
@@ -33,11 +40,21 @@ class TraceReader:
         assert False
 
 
+    def _post_process_list(self, l, kind):
+        l = self._list_handler(l, kind)
+        if self.hashable:
+            if kind is self.LIST_IS_SET:
+                l = frozenset(l)
+            elif kind is self.LIST_IS_SEQ:
+                l = tuple(l)
+        return l
+
+
     # return a list
     def _lists(self, string, kind):
         l = list()
         if not string:
-            return self._list_handler(l, kind)
+            return self._post_process_list(l, kind)
         processed, pos, length = 0, 0, len(string)
         while pos < length:
             if string[pos] in self._matching or string[pos] == ',':
@@ -49,7 +66,7 @@ class TraceReader:
             pos += 1
         if pos != processed:
             l.append(self._variable_converter(string[processed:pos]))
-        return self._list_handler(l, kind)
+        return self._post_process_list(l, kind)
 
 
     # < string $
@@ -62,9 +79,25 @@ class TraceReader:
         return self._lists(string, kind=self.LIST_IS_SET)
 
 
+    # make dicts hashable if hash_data is True
+    class HashableDict(OrderedDict):
+        def __hash__(self):
+            return hash(frozenset(self.items()))
+    
+
+    # sort dict or make dict hashable
+    def _post_process_dict(self, d):
+        if self.hashable:
+            return self.HashableDict(sorted(d.items()))
+        elif self.sort_dict:
+            return OrderedDict(sorted(d.items()))
+        else:
+            return d
+
+
     # return a dict
     def _dict_common(self, string, arrow, sep, value_seq_len):
-        d = dict()
+        d = dict() if not self.hashable else self.HashableDict()
         processed, pos, length = 0, 0, len(string)
         key, value = '', ''
         while True:
@@ -88,7 +121,7 @@ class TraceReader:
         key, value = self._kv_inside_handler(
             key, self._variable_converter(value))
         d[key] = value
-        return d
+        return self._post_process_dict(d)
 
 
     # [ string ]
@@ -204,6 +237,7 @@ class TraceReader:
                     cur_action = self.get_action_name(line)
             elif line[0] in "-=S":
                 if state:
+                    state = self._post_process_dict(state)
                     yield state, ''.join(lines).strip()
                     state = dict()
                 if cur_action is not None:
@@ -247,11 +281,19 @@ if __name__ == '__main__':
                         type=int, help="json file indent")
     parser.add_argument('-p', dest='handler', action='store', required=False,
                         help="python user_dict and list/kv handers")
-    parser.add_argument('-a', dest='action', action='store_true', required=False,
+    parser.add_argument('-a', dest='action', action='store_true',
+                        required=False,
                         help="save action name in '_action' key if available")
+    parser.add_argument('-d', dest='hash_data', action='store_true',
+                        required=False,
+                        help="make data structures hashable")
+    parser.add_argument('-s', dest='sort_keys', action='store_true',
+                        required=False,
+                        help="sort dict by keys, true if -d is defined")
     args = parser.parse_args()
-
-    tr = TraceReader(args.action)
+    
+    tr = TraceReader(save_action_name=args.action, hashable=args.hash_data,
+                     sort_dict=args.sort_keys)
 
     if args.handler:
         import sys
@@ -289,10 +331,16 @@ if __name__ == '__main__':
     # tr.set_kv_handler(kv_handler, False)
 
     states = list(tr.trace_reader(args.trace_file))
+    
+    def serialize_sets(obj):
+        if isinstance(obj, frozenset):
+            return tuple(obj)
+        return obj
+    
 
     if args.json_file:
         with open(args.json_file, 'w') as f:
-            json.dump(states, f, indent=args.indent)
+            json.dump(states, f, indent=args.indent, default=serialize_sets)
             f.write('\n')
     else:
-        print(json.dumps(states, indent=args.indent))
+        print(json.dumps(states, indent=args.indent, default=serialize_sets))
