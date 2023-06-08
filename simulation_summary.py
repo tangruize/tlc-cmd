@@ -2,116 +2,144 @@
 # -*- coding: UTF-8 -*-
 
 import argparse
-import signal
 import os
 import time
-import inotify.adapters
+from copy import copy
 from collections import defaultdict
 from trace_reader import TraceReader
-
-break_inotify = False
-
-def sigint_handler(signum, frame):
-    global break_inotify
-    print('Caught SIGINT, stopping inotify. Press Ctrl+C again to exit')
-    break_inotify = True
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+from multiprocessing import Pool, cpu_count
 
 tr = TraceReader(save_action_name=True, hashable=True)
-finish_file = "MC.out"
-processed_files_set = set()
-total_states = 0
-total_actions = defaultdict(lambda: 0)
-distinct_states = 0
-distinct_actions = defaultdict(lambda: 0)
-diameters = defaultdict(lambda: 0)
-states = set()
 
-def process_file(fn, delete=False):
-    global processed_files_set, total_states, distinct_states, total_actions, distinct_actions, diameters
-    diameter = 0
-    for state in tr.trace_reader(fn):
-        diameter += 1
-        action = state['_action']
-        state['_action'] = 0
-        state_hash = hash(state)
-        if state_hash not in states:
-            states.add(state_hash)
-            distinct_states += 1
-            distinct_actions[action] += 1
-        total_states += 1
-        total_actions[action] += 1
-    if diameter:
-        diameters[diameter] += 1
-    processed_files_set.add(fn)
-    if delete and fn != finish_file:
-        os.remove(fn)
+# Data
+class SimulationSummaryData:
+    @staticmethod
+    def default_0():
+        return 0
+    def __init__(self) -> None:
+        self.processed_files = set()
+        self.total_states = 0
+        self.total_actions = defaultdict(self.default_0)
+        self.diameters = defaultdict(self.default_0)
+        self.states = dict()
+        self.distinct_actions = None
 
 
-prev_time = 0
-no_print_diameters = False
-no_print_actions = False
-def print_progress(period=5):
-    global prev_time
-    current_time = time.time()
-    if current_time - prev_time >= period:
-        if not no_print_diameters or not no_print_actions:
-            print()
-        print('Processed: {}, total states: {}, distinct states: {}'.format(len(processed_files_set), total_states, len(states)))
-        if not no_print_diameters:
-            print('Diameters:')
-            for key, value in sorted(diameters.items(), key=lambda x: x[0]):
-                print("  {} : {}".format(key, value))
-        if not no_print_actions:
-            print('Actions:')
-            for k in distinct_actions:
-                print(' ', k, ':', distinct_actions[k], '/', total_actions[k])
-        prev_time = current_time
+# Mapper
+class SimulationSummaryMapper:
+    def __init__(self, is_delete=False, finish_file='MC.out'):
+        self.is_delete = is_delete
+        self.finish_file = finish_file
 
-def is_trace_file(fn):
-    return fn.startswith("trace_") or fn == finish_file
+    def process_file(self, fn):
+        diameter = 0
+        data = SimulationSummaryData()
+        for state in tr.trace_reader(fn):
+            diameter += 1
+            action = state['_action']
+            state['_action'] = 0
+            state_hash = hash(state)
+            if state_hash not in data.states:
+                data.states[state_hash] = action
+            else:
+                pass  # we did not check the equality if hashes are the same
+            data.total_states += 1
+            data.total_actions[action] += 1
+        if diameter:
+            data.diameters[diameter] += 1
+        data.processed_files.add(fn)
+        if self.is_delete and fn != self.finish_file:
+            os.remove(fn)
+        return data
 
-def iterate_dir(trace_dir, use_inotify=True, delete=False):
-    global break_inotify
-    os.chdir(trace_dir)
-    if use_inotify:
-        i = inotify.adapters.Inotify()
-        i.add_watch('.')
+
+# Tasks submmitter, reducer and printer
+class ProgressManager:
+    def __init__(self, nproc, is_delete=False, trace_dir=None, finish_file='MC.out', period=5):
+        if trace_dir is not None:
+            os.chdir(trace_dir)
+        self.prev_time = 0
+        self.nproc = nproc
+        self.pool = Pool(processes=self.nproc)
+        self.mapper = SimulationSummaryMapper(is_delete=is_delete, finish_file=finish_file)
+        self.data = SimulationSummaryData()
+        self.submitted = 0
+        self.finish_file = finish_file
+        self.period = period
+        self.results = []
+
+    def reduce(self, data: SimulationSummaryData, reduce_actions=False):
+        if data is not None:
+            self.data.processed_files.update(data.processed_files)
+            self.data.total_states += data.total_states
+            self.data.states.update(data.states)
+            for j in data.diameters:
+                self.data.diameters[j] += data.diameters[j]
+            for j in data.total_actions:
+                self.data.total_actions[j] += data.total_actions[j]
+        if reduce_actions:
+            self.data.distinct_actions = defaultdict(lambda: 0)
+            for value in self.data.states.values():
+                self.data.distinct_actions[value] += 1
+                
+    def reduce_result(self, reduce_actions=False):
+        for r in self.results:
+            if r.ready():
+                self.reduce(r.get(), reduce_actions=reduce_actions)
+                self.results.remove(r)
+            self.print_progress()
+
+    def print_progress(self, period=None):
+        current_time = time.time()
+        if period is None:
+            period = self.period
+        if current_time - self.prev_time >= period:
+            p_ratio = 0 if self.submitted == 0 else len(self.data.processed_files) / self.submitted
+            s_ratio = 0 if self.data.total_states == 0 else len(self.data.states) / self.data.total_states
+            print('Processed: {}/{} ({:.3g}%), distinct/total states: {}/{} ({:.3g}%)'.format(
+                len(self.data.processed_files), self.submitted, p_ratio * 100,
+                len(self.data.states), self.data.total_states, s_ratio * 100))
+            if period == 0:
+                print('Diameters:')
+                for key, value in sorted(self.data.diameters.items(), key=lambda x: x[0]):
+                    print("  {} : {}".format(key, value))
+                print('Actions:')
+                for k in self.data.total_actions:
+                    print(' ', k, ':', self.data.distinct_actions[k], '/', self.data.total_actions[k])
+            self.prev_time = current_time
+    
+    def map(self, fn):
+        self.results.append(self.pool.apply_async(self.mapper.process_file, args=(fn,)))
+        self.submitted += 1
+    
+    def is_trace_file(self, fn):
+        return fn.startswith("trace_") or fn == self.finish_file
+    
+    def iterate_dir(self):
+        for i in os.listdir():
+            if self.is_trace_file(i):
+                self.map(i)
+            # if self.submitted % 1000 == 0:
+            #     self.reduce_result()
+            self.print_progress()
+        self.pool.close()
+        print('Map finished')
         while True:
-            for event in i.event_gen(yield_nones=False, timeout_s=1):
-                (_, type_names, _, filename) = event
-                if type_names == ['IN_CLOSE_WRITE']:
-                    if not is_trace_file(filename) and filename != finish_file:
-                        continue
-                    process_file(filename, delete=delete)
-                    print_progress()
-                    if filename == finish_file:
-                        break_inotify = True
-                        break
-                if break_inotify:
-                    break
-            print_progress()
-            if break_inotify:
+            self.reduce_result()
+            if len(self.results) == 0:
+                self.reduce(data=None, reduce_actions=True)
                 break
-    file_list = set([i for i in os.listdir() if is_trace_file(i) or i == finish_file]) - processed_files_set
-    for i in file_list:
-        process_file(i, delete=delete)
-        print_progress()
+            self.print_progress()
+        print('Reduce finished')
+        self.pool.join()
+        self.print_progress(period=0)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get simulation mode summary')
     parser.add_argument(dest='trace_dir', action='store', help='Trace dir')
     parser.add_argument('-r', dest='remove', action='store_true', help='Remove processed files')
-    parser.add_argument('-i', dest='iterate', action='store_true', help='Iterate dir instead of using inotify')
-    parser.add_argument('-D', dest='no_diameters', action='store_true', help='Not to print diameters in progress')
-    parser.add_argument('-A', dest='no_actions', action='store_true', help='Not to print actions in progress')
+    parser.add_argument('-p', dest='nproc', action='store', type=int, default=cpu_count(), help='Number of processes')
     arg_parser = parser.parse_args()
-    if arg_parser.no_diameters:
-        no_print_diameters = True
-    if arg_parser.no_actions:
-        no_print_actions = True
-    if not arg_parser.iterate:
-        signal.signal(signal.SIGINT, sigint_handler)
-    iterate_dir(arg_parser.trace_dir, not arg_parser.iterate, arg_parser.remove)
-    no_print_diameters, no_print_actions = False, False
-    print_progress(period=0)
+    process_man = ProgressManager(nproc=arg_parser.nproc, is_delete=arg_parser.remove, trace_dir=arg_parser.trace_dir)
+    process_man.iterate_dir()
