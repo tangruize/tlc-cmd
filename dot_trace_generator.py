@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+# -*- coding: UTF-8 -*-
+
 import networkx as nx
 import argparse
 import time
@@ -6,7 +9,7 @@ from multiprocessing import Pool, cpu_count
 from trace_reader import get_dot_label_string
 
 
-parser = argparse.ArgumentParser(description='Compute all simple paths of dot file')
+parser = argparse.ArgumentParser(description='Generate all simple paths of a dot file')
 parser.add_argument(dest='dot_file', action='store', help='Dot file')
 parser.add_argument('-p', dest='nproc', action='store', type=int, default=cpu_count(), help='Number of processes')
 parser.add_argument('-s', dest='save_dir', action='store', help='Save all generated traces')

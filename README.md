@@ -1,15 +1,16 @@
-# Run TLC in CMD
+# TLC cmd tools
 
-This tool automatically generates TLC config files and can batch models.
+Welcome! Here you'll find scripts that automate TLC config file generation, batch model processing, simulation trace conversion to JSON, and Graphviz dot file conversion into traces.
 
 Features:
 
-- Support almost all options in TLA+ toolbox model checking panel
-- Batch models
-- Save batch result table
-- Set an Init state from a trace file
-- Script to read trace file to python object or dump json
-- Make it easy to run distributed mode
+- Comprehensive support for nearly all options in the TLA+ toolbox model checking panel
+- Efficient batch processing of models
+- Convenient saving of batch result tables
+- Initialization of states from trace files
+- Script for reading trace files into Python objects or JSON dumps
+- Conversion of Graphviz dot state graph files into unique traces
+- Seamless execution in distributed mode for easy scalability
 
 ## Dependencies
 
@@ -20,6 +21,7 @@ Optional modules:
 ```sh
 pip3 install requests  # to download tla2tools.jar
 pip3 install psutil    # for "memory ratio" option (see example.ini)
+pip3 install networkx  # for conversion of Graphviz dot state graph file
 git submodule update --init --recursive  # for distributed mode
 ```
 
@@ -49,17 +51,10 @@ options:
 
 An example: [DieHard/run.sh](./examples/DieHard/run.sh)
 
-New features:
-
-- `-c` separates constants module and auto extends it in your spec,
-  so that you can use the values of `set of model values` in your spec.
-- distributed mode: easily run distributed mode with the [spssh](https://github.com/tangruize/spssh/) scripts.
-  Just configure SSH no password login to worker nodes.
-
 ### trace_reader.py
 
 ```txt
-usage: trace_reader.py [-h] [-o JSON_FILE] [-i INDENT] [-p HANDLER] [-a] trace_file
+usage: trace_reader.py [-h] [-o JSON_FILE] [-i INDENT] [-p HANDLER] [-a] [-d] [-s] [-g] trace_file
 
 Read TLA traces into Python objects
 
@@ -72,14 +67,12 @@ options:
   -i INDENT     json file indent
   -p HANDLER    python user_dict and list/kv handers
   -a            save action name in '_action' key if available
+  -d            make data structures hashable
+  -s            sort dict by keys, true if -d is defined
+  -g            get dot file graph
 ```
 
-The trace file is the MC.out file or dumped by the `simulation dump traces` option.
-
-New features:
-
-- `-p` provides a python file with some handlers to replace data of the trace while converting.
-- `-a` saves action name to `'_action'` key in JSON (requires latest TLC version)
+The trace file can be either the MC.out file or generated through the "simulation dump traces" option.
 
 Python `-p` handler example:
 
@@ -103,6 +96,41 @@ def list_handler(l, k):
         return l
     else:
         return [ "changed" ]
+```
+
+### trace_counter.py
+
+```txt
+usage: trace_counter.py [-h] [-p NPROC] [-n NTRACE] [-l LOGFILE] [-f HASHFILE] [-r] trace_dir
+
+Simulation unique traces and distinct states counter
+
+positional arguments:
+  trace_dir    Trace dir
+
+options:
+  -h, --help   show this help message and exit
+  -p NPROC     Number of processes
+  -n NTRACE    Print progress every n traces
+  -l LOGFILE   Log output to file
+  -f HASHFILE  Hash file
+  -r           Reduce only
+```
+
+### dot_trace_generator.py
+
+```txt
+usage: dot_trace_generator.py [-h] [-p NPROC] [-s SAVE_DIR] dot_file
+
+Generate all simple paths of a dot file
+
+positional arguments:
+  dot_file     Dot file
+
+options:
+  -h, --help   show this help message and exit
+  -p NPROC     Number of processes
+  -s SAVE_DIR  Save all generated traces
 ```
 
 ## How to write config.ini

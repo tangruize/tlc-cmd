@@ -101,7 +101,7 @@ class ProgressManager:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Get simulation mode summary')
+    parser = argparse.ArgumentParser(description='Simulation unique traces and distinct states counter')
     parser.add_argument(dest='trace_dir', action='store', help='Trace dir')
     parser.add_argument('-p', dest='nproc', action='store', type=int, default=cpu_count(), help='Number of processes')
     parser.add_argument('-n', dest='ntrace', action='store', type=int, default=0, help='Print progress every n traces')
