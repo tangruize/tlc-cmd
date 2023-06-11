@@ -5,7 +5,6 @@ import argparse
 import os
 import time
 import sys
-from copy import copy
 from collections import defaultdict
 from trace_reader import TraceReader
 from multiprocessing import Pool, cpu_count
@@ -100,7 +99,7 @@ class ProgressManager:
                 continue
             if self.period_ntrace:
                 if len(self.data.processed_files) % self.period_ntrace == 0:
-                    self.print_progress(period=0.1)
+                    self.print_progress(period=0)
             else:
                 self.print_progress()
     
