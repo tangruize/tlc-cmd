@@ -2,7 +2,7 @@
 
 # usage: python3 trace_reader.py -h
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 class TraceReader:
     LIST_IS_SEQ = "seq"
@@ -168,7 +168,7 @@ class TraceReader:
 
     # convert MC.out to trace file
     @staticmethod
-    def get_converted_string(file):
+    def get_out_converted_string(file):
         if not hasattr(file, 'read'):
             f = open(file)
         else:
@@ -207,6 +207,46 @@ class TraceReader:
 
 
     @staticmethod
+    def get_dot_label_string(line):
+        space_idx = line.find(' ')
+        state_hash = line[:space_idx]
+        label_end_idx = 1 if line[-2] == ';' else 0
+        label_end_idx += 2 if line[-label_end_idx-3] == '"' else 17
+        label = eval(line[space_idx+8:-label_end_idx]) + '\n'
+        return int(state_hash), label
+
+
+    @staticmethod
+    def get_dot_converted_string(file):
+        if not hasattr(file, 'read'):
+            f = open(file)
+        else:
+            f = file
+        yield '-' * 16 + ' MODULE MC_dot ' + '-' * 16 + '\n'
+        for line in f:
+            if ' [label="' in line:
+                state_hash, label = TraceReader.get_dot_label_string(line)
+                yield 'STATE_{} == \n'.format(state_hash)
+                yield from label.splitlines(keepends=True)
+                yield '\n' * 2
+        yield '=' * 49 + '\n'
+        f.close()
+
+
+    def get_dot_graph(self, file):
+        if not hasattr(file, 'read'):
+            f = open(file)
+        else:
+            f = file
+        g = defaultdict(lambda: [])
+        for line in f:
+            if ' -> ' in line:
+                a, b = map(int, line.rstrip(';\n').split(' -> '))
+                g[a].append(b)
+        return self._post_process_dict(g)
+
+
+    @staticmethod
     def get_action_name(line):
         start = line.find('<')
         end = line.find(' ', start)
@@ -222,8 +262,16 @@ class TraceReader:
         else:
             f = file
 
-        if f.read(2) != '--':
-            f = self.get_converted_string(f)
+        starting_chars = f.read(2)
+        is_dot_file = False
+        if starting_chars != '--':
+            if starting_chars == '@!':
+                f = self.get_out_converted_string(f)
+            elif starting_chars == 'st':
+                f = self.get_dot_converted_string(f)
+                is_dot_file = True
+            else:
+                return
 
         state = dict()
         variable = ""
@@ -242,6 +290,8 @@ class TraceReader:
                     state = dict()
                 if cur_action is not None:
                     state['_action'] = cur_action
+                if is_dot_file and line[0] == 'S':
+                    state['_hash'] = int(line[6:-4])
                 lines = [] if cur_action_line is None else [cur_action_line]
             elif line[0] in "/\n":
                 if variable:
@@ -263,6 +313,11 @@ class TraceReader:
     def trace_reader(self, file):
         for state, _ in self.trace_reader_with_state_str(file):
             yield state
+
+
+get_dot_label_string = TraceReader.get_dot_label_string
+get_out_converted_string = TraceReader.get_out_converted_string
+get_dot_converted_string = TraceReader.get_dot_converted_string
 
 
 if __name__ == '__main__':
@@ -290,6 +345,8 @@ if __name__ == '__main__':
     parser.add_argument('-s', dest='sort_keys', action='store_true',
                         required=False,
                         help="sort dict by keys, true if -d is defined")
+    parser.add_argument('-g', dest='graph', action='store_true', required=False,
+                        help="get dot file graph")
     args = parser.parse_args()
     
     tr = TraceReader(save_action_name=args.action, hashable=args.hash_data,
@@ -329,8 +386,11 @@ if __name__ == '__main__':
     #     return k, v
     
     # tr.set_kv_handler(kv_handler, False)
-
-    states = list(tr.trace_reader(args.trace_file))
+    
+    if not args.graph:
+        states = list(tr.trace_reader(args.trace_file))
+    else:
+        states = tr.get_dot_graph(args.trace_file)
     
     def serialize_sets(obj):
         if isinstance(obj, frozenset):
