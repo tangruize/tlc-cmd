@@ -21,5 +21,6 @@ setup(name='tlccmd',
     },
     install_requires=['requests', 'psutil', 'networkx'],
     python_requires='>=3',
-    scripts=['tlcwrapper.py', 'trace_reader.py']
+    scripts=['tlcwrapper.py', 'trace_reader.py', 'trace_counter.py',
+             'trace_generator.py']
 )

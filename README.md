@@ -117,10 +117,10 @@ options:
   -r           Reduce only
 ```
 
-### dot_trace_generator.py
+### trace_generator.py
 
 ```txt
-usage: dot_trace_generator.py [-h] [-p NPROC] [-s SAVE_DIR] dot_file
+usage: trace_generator.py [-h] [-p NPROC] [-s SAVE_DIR] dot_file
 
 Generate all simple paths of a dot file
 
