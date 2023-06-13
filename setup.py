@@ -3,12 +3,12 @@
 
 from setuptools import setup
 
-setup(name='tlccmd',
-    version='1.0.2',
+setup(name='tlc-cmd',
+    version='1.0.3',
     author='Ruize Tang',
     author_email='tangruize97@gmail.com',
     url='https://github.com/tangruize/tlc-cmd',
-    description='Run TLC in CMD',
+    description='TLC cmd tools',
     packages=['.'],
     classifiers = [
         'Development Status :: 3 - Alpha',

@@ -16,6 +16,10 @@ default_hash_filename = 'hashfile'
 def process_file(fn):
     l = []
     for state in tr.trace_reader(fn):
+        if '_hash' in state:
+            del state['_hash']
+        if '_action' in state:
+            del state['_action']
         l.append(str(hash(state)))
     hash_file.write('{}\n'.format(' '.join(l)))
 
@@ -59,7 +63,7 @@ class ProgressManager:
         print(*args, **kwargs, file=self.logfile, flush=True)
 
     def print_progress(self, period=None):
-        current_time = time.time() if period != 0 else self.prev_time
+        current_time = time.time()
         if period is None:
             period = self.period
         if current_time - self.prev_time >= period:
@@ -82,7 +86,7 @@ class ProgressManager:
         self.submitted += 1
     
     def is_trace_file(self, fn: str):
-        return fn.startswith("trace_") or fn == 'MC.out'
+        return fn.startswith("trace_") or fn in {'MC.out', 'MC_states.dot'}
     
     def iterate_dir(self):
         for i in os.listdir():

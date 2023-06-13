@@ -2,14 +2,16 @@
 
 # usage: python3 trace_reader.py -h
 
+import os
+import sys
 from collections import OrderedDict, defaultdict
 
 class TraceReader:
     LIST_IS_SEQ = "seq"
     LIST_IS_SET = "set"
 
-    def __init__(self, save_action_name=False,
-                 hashable=False, sort_dict=False):
+    def __init__(self, save_action_name=False, hashable=False, sort_dict=False,
+                 handler_py=None):
         self._matching = {'{': ('}', self._braces), '<': ('$', self._chevrons),
             '[': (']', self._brackets), '(': (')', self._parentheses)}
 
@@ -18,11 +20,38 @@ class TraceReader:
         self._kv_outside_handler = lambda k, v: (k, v)
         self._kv_inside_handler = lambda k, v: (k, v)
         self._list_handler = lambda s, k: s
+        self.set_handlers(handler_py)
         self.save_action_name = save_action_name
         self.sort_dict = sort_dict
         self.hashable = hashable
         if self.hashable:
             self.sort_dict = True
+
+
+    # set callback handlers from ENV 'HANDLER_PY'
+    def set_handlers(self, handler_py=None):
+        if handler_py is None:
+            handler_py = os.getenv('HANDLER_PY')
+            if handler_py is None:
+                return
+        try:
+            sys.path.insert(0, os.path.dirname(handler_py))
+            handler_module = __import__(
+                os.path.basename(handler_py).replace('.py', ''))
+            sys.path.pop(0)
+        except ModuleNotFoundError:
+            print("Warning: cannot import module '{}'".format(handler_py),
+                  file=sys.stderr)
+            handler_module = None
+
+        if hasattr(handler_module, "user_dict"):
+            self.set_user_dict(handler_module.user_dict)
+        if hasattr(handler_module, "list_handler"):
+            self.set_list_handler(handler_module.list_handler)
+        if hasattr(handler_module, "outside_kv_handler"):
+            self.set_kv_handler(handler_module.outside_kv_handler, inside=False)
+        if hasattr(handler_module, "inside_kv_handler"):
+            self.set_kv_handler(handler_module.inside_kv_handler, inside=True)
 
 
     # find '}$])' for '{<[('
@@ -348,45 +377,10 @@ if __name__ == '__main__':
     parser.add_argument('-g', dest='graph', action='store_true', required=False,
                         help="get dot file graph")
     args = parser.parse_args()
-    
+
     tr = TraceReader(save_action_name=args.action, hashable=args.hash_data,
-                     sort_dict=args.sort_keys)
+                     sort_dict=args.sort_keys, handler_py=args.handler)
 
-    if args.handler:
-        import sys
-        import os
-
-        try:
-            sys.path.insert(1, os.path.dirname(args.handler))
-            handler_module = __import__(
-                os.path.basename(args.handler).replace('.py', ''))
-            sys.path.pop(1)
-        except ModuleNotFoundError:
-            print("Warning: cannot import module '{}'".format(args.handler),
-                  file=sys.stderr)
-            handler_module = None
-
-        if hasattr(handler_module, "user_dict"):
-            tr.set_user_dict(handler_module.user_dict)
-        if hasattr(handler_module, "list_handler"):
-            tr.set_list_handler(handler_module.list_handler)
-        if hasattr(handler_module, "outside_kv_handler"):
-            tr.set_kv_handler(handler_module.outside_kv_handler, inside=False)
-        if hasattr(handler_module, "inside_kv_handler"):
-            tr.set_kv_handler(handler_module.inside_kv_handler, inside=True)
-
-    # Examples:
-    # set_user_dict and set_kv_handler usage example
-    # tr.set_user_dict({"Nil": None})
-    
-    # def kv_handler(k, v):
-    #     if k != 'messages':
-    #         return k, v
-    #     v.sort(key=lambda i: i['seq'])
-    #     return k, v
-    
-    # tr.set_kv_handler(kv_handler, False)
-    
     if not args.graph:
         states = list(tr.trace_reader(args.trace_file))
     else:
