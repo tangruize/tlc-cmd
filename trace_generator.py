@@ -22,7 +22,9 @@ def read_dot(dot_file, save_states=False):
     with open(dot_file) as f:
         for line in f:
             if ' -> ' in line:
-                a, b = map(int, line.rstrip(';\n').split(' -> '))
+                a, x = line.rstrip(';\n').split(' -> ')
+                a = int(a)
+                b = int(x.split(' ', maxsplit=1)[0])
                 g.add_edge(a, b)
             elif save_states and ' [label="' in line:
                 state_hash, label = get_dot_label_string(line)
