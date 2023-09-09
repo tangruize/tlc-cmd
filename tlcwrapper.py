@@ -764,8 +764,8 @@ class TLCWrapper:
 
         dump_states = opt.get('dump states')
         if dump_states:
-            if dump_states.lower() == 'dot':
-                self.options += ['-dump', 'dot', self.default_mc_states]
+            if dump_states.startswith('dot'):
+                self.options += ['-dump', dump_states, self.default_mc_states]
             elif dump_states.lower() != 'false':
                 self.options += ['-dump', self.default_mc_states]
 
