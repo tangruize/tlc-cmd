@@ -522,9 +522,10 @@ class TLCWrapper:
     tla2tools_jar = os.path.join(_script_dir, 'tla2tools.jar')
     community_jar = os.path.join(_script_dir, 'CommunityModules-deps.jar')
     tla2tools_url = 'https://github.com/tlaplus/tlaplus/releases/download/{}/tla2tools.jar'
-    tla2tool2_jar_version = 'v1.8.0'
+    tla2tool2_jar_latest_version = 'v1.8.0'
+    tla2tool2_jar_stable_version = 'v1.7.0'
     community_url = 'https://github.com/tlaplus/CommunityModules/releases/download/{}/CommunityModules-deps.jar'
-    community_jar_version = '202108271748'
+    community_jar_version = '202308240039'
     tla2tools_tlc = 'tlc2.TLC'
     tla2tools_server = 'tlc2.tool.distributed.TLCServer'
     tla2tools_worker = 'tlc2.tool.distributed.TLCWorker'
@@ -877,17 +878,19 @@ class TLCWrapper:
         self.log_lines = []
 
     @staticmethod
-    def download_jar(target, url, default_version, lastest_version_link):
+    def download_jar(target, url, default_version, lastest_version_link, overwrite=False):
         def version_numbers(s):
             return [int(i.replace('v', '')) for i in s.split('.')]
 
-        if not os.path.isfile(target):
+        if not os.path.isfile(target) or overwrite:
             try:
                 import requests
-                r = requests.get(lastest_version_link)
-                version = r.json()['tag_name']
-                if version_numbers(version) < version_numbers(default_version):
-                    version = default_version
+                version = default_version
+                if lastest_version_link:
+                    r = requests.get(lastest_version_link)
+                    request_version = r.json()['tag_name']
+                    if version_numbers(request_version) > version_numbers(default_version):
+                        version = request_version
                 if debug:
                     eprint('Debug: downloading:', url.format(version))
                 r = requests.get(url.format(version), allow_redirects=True)
@@ -899,14 +902,16 @@ class TLCWrapper:
                 raise e
 
     @classmethod
-    def download_tla2tools(cls):
-        lastest_version_link = 'https://api.github.com/repos/tlaplus/tlaplus/releases/latest'
-        cls.download_jar(cls.tla2tools_jar, cls.tla2tools_url, cls.tla2tool2_jar_version, lastest_version_link)
+    def download_tla2tools(cls, latest=False, overwrite=False):
+        lastest_version_link = None if not latest else 'https://api.github.com/repos/tlaplus/tlaplus/releases/latest'
+        tla2tool2_version = cls.tla2tool2_jar_stable_version if not latest else cls.tla2tool2_jar_latest_version
+        cls.download_jar(cls.tla2tools_jar, cls.tla2tools_url, tla2tool2_version, lastest_version_link, overwrite)
 
     @classmethod
-    def download_community_modules(cls):
+    def download_community_modules(cls, overwrite=False):
         lastest_version_link = 'https://api.github.com/repos/tlaplus/CommunityModules/releases/latest'
-        cls.download_jar(cls.community_jar, cls.community_url, cls.community_jar_version, lastest_version_link)
+        cls.download_jar(cls.community_jar, cls.community_url, cls.community_jar_version,
+                         lastest_version_link, overwrite)
 
     def download_dependencies(self):
         self.download_tla2tools()
@@ -1175,6 +1180,8 @@ if __name__ == '__main__':
                         help="Do not save summary file", default=False)
     parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
                         help="Download tla2tools.jar and CommunityModules-deps.jar and exit", default=False)
+    parser.add_argument('-D', dest='latest_version', action='store_true', required=False, default=False,
+                        help="Delete existing jars and download with latest version instead of stable version")
     parser.add_argument('-c', dest='separate_constants', action='store_true', required=False,
                         help="Separate constants and model options into two files", default=False)
     parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
@@ -1186,9 +1193,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.download_jar:
-        TLCWrapper.download_tla2tools()
-        TLCWrapper.download_community_modules()
+    if args.download_jar or args.latest_version:
+        TLCWrapper.download_tla2tools(latest=args.latest_version, overwrite=args.latest_version)
+        TLCWrapper.download_community_modules(overwrite=args.latest_version)
         exit(0)
     if args.no_debug:
         debug = False
