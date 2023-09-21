@@ -523,9 +523,9 @@ class TLCWrapper:
     community_jar = os.path.join(_script_dir, 'CommunityModules-deps.jar')
     tla2tools_url = 'https://github.com/tlaplus/tlaplus/releases/download/{}/tla2tools.jar'
     tla2tool2_jar_latest_version = 'v1.8.0'
-    tla2tool2_jar_stable_version = 'v1.7.0'
+    tla2tool2_jar_stable_version = 'v1.7.2' # v1.7.3 becomes slower in some conditions
     community_url = 'https://github.com/tlaplus/CommunityModules/releases/download/{}/CommunityModules-deps.jar'
-    community_jar_version = '202308240039'
+    community_jar_version = '202103291751' # for v1.7.2 tlc, some classses are not defined (KSubsetValue) in higher versions
     tla2tools_tlc = 'tlc2.TLC'
     tla2tools_server = 'tlc2.tool.distributed.TLCServer'
     tla2tools_worker = 'tlc2.tool.distributed.TLCWorker'
@@ -908,8 +908,8 @@ class TLCWrapper:
         cls.download_jar(cls.tla2tools_jar, cls.tla2tools_url, tla2tool2_version, lastest_version_link, overwrite)
 
     @classmethod
-    def download_community_modules(cls, overwrite=False):
-        lastest_version_link = 'https://api.github.com/repos/tlaplus/CommunityModules/releases/latest'
+    def download_community_modules(cls, latest=False, overwrite=False):
+        lastest_version_link = None if not latest else 'https://api.github.com/repos/tlaplus/CommunityModules/releases/latest'
         cls.download_jar(cls.community_jar, cls.community_url, cls.community_jar_version,
                          lastest_version_link, overwrite)
 
@@ -1194,8 +1194,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.download_jar or args.latest_version:
+        if not args.latest_version:
+            eprint('Info: please note that the stable TLC version has limited support for CommunityModules')
         TLCWrapper.download_tla2tools(latest=args.latest_version, overwrite=args.latest_version)
-        TLCWrapper.download_community_modules(overwrite=args.latest_version)
+        TLCWrapper.download_community_modules(latest=args.latest_version, overwrite=args.latest_version)
         exit(0)
     if args.no_debug:
         debug = False
