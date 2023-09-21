@@ -1180,8 +1180,8 @@ if __name__ == '__main__':
                         help="Do not save summary file", default=False)
     parser.add_argument('-d', dest='download_jar', action='store_true', required=False,
                         help="Download tla2tools.jar and CommunityModules-deps.jar and exit", default=False)
-    parser.add_argument('-D', dest='latest_version', action='store_true', required=False, default=False,
-                        help="Delete existing jars and download with latest version instead of stable version")
+    parser.add_argument('-D', dest='stable_version', action='store_true', required=False, default=False,
+                        help="Delete existing jars and download with stable version instead of latest version")
     parser.add_argument('-c', dest='separate_constants', action='store_true', required=False,
                         help="Separate constants and model options into two files", default=False)
     parser.add_argument(dest='config_ini', metavar='config.ini', action='store', nargs='?',
@@ -1193,11 +1193,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.download_jar or args.latest_version:
-        if not args.latest_version:
+    if args.download_jar or args.stable_version:
+        if args.stable_version:
             eprint('Info: please note that the stable TLC version has limited support for CommunityModules')
-        TLCWrapper.download_tla2tools(latest=args.latest_version, overwrite=args.latest_version)
-        TLCWrapper.download_community_modules(latest=args.latest_version, overwrite=args.latest_version)
+        is_latest = not args.stable_version
+        TLCWrapper.download_tla2tools(latest=is_latest, overwrite=args.stable_version)
+        TLCWrapper.download_community_modules(latest=is_latest, overwrite=args.stable_version)
         exit(0)
     if args.no_debug:
         debug = False
