@@ -292,11 +292,24 @@ class TLCConfigFile:
         """invariants and properties share the same parser"""
         if keyword in self.cfg:
             spec = self.cfg[keyword]
-            spec_names = '\n'.join('{}_{}'.format(prefix, i) for i in spec)
-            if spec_names != '':
-                self.output_cfg.append('{}\n{}'.format(specifier, spec_names))
-                spec_values = '\n'.join('{}_{} ==\n{}'.format(prefix, i, spec[i]) for i in spec)
-                self.output_tla_options.append(spec_values)
+            # separate identifiers (use directly) from expressions (need definition)
+            direct_names = []
+            defined_names = []
+            defined_values = []
+            for name in spec:
+                value = spec[name]
+                if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', value):
+                    # value is a simple identifier, use it directly
+                    direct_names.append(value)
+                else:
+                    # value is an expression, create a definition
+                    defined_names.append('{}_{}'.format(prefix, name))
+                    defined_values.append('{}_{} ==\n{}'.format(prefix, name, value))
+            all_names = direct_names + defined_names
+            if all_names:
+                self.output_cfg.append('{}\n{}'.format(specifier, '\n'.join(all_names)))
+            if defined_values:
+                self.output_tla_options.append('\n'.join(defined_values))
 
     def _parse_invariants(self):
         """parse invariants section"""
@@ -367,8 +380,14 @@ class TLCConfigFile:
                             cfg_str = None
                         tla_str = None
                 else:  # ordinary assignment
-                    cfg_str = 'CONSTANT\n{} <- {}_{}'.format(name, prefix, name)
-                    tla_str = '{}_{} == \n{}'.format(prefix, name, value)
+                    # if value is a simple identifier, use it directly
+                    # otherwise, create a definition and reference it
+                    if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', value):
+                        cfg_str = 'CONSTANT\n{} <- {}'.format(name, value)
+                        tla_str = None
+                    else:
+                        cfg_str = 'CONSTANT\n{} <- {}_{}'.format(name, prefix, name)
+                        tla_str = '{}_{} == \n{}'.format(prefix, name, value)
                 self.output_cfg.append(cfg_str)
                 self.output_tla_constants.append(tla_str)
             if symmetrical:
@@ -379,13 +398,6 @@ class TLCConfigFile:
     def _parse_override(self):
         """parse override section"""
         self._parse_constants(keyword='override', prefix='over')
-        # keyword = 'override'
-        # if keyword in self.cfg:
-        #     overides = self.cfg[keyword]
-        #     for name in overides:
-        #         value = overides[name]
-        #         cfg_str = 'CONSTANT\n{} <- {}'.format(name, value)
-        #         self.output_cfg.append(cfg_str)
 
     def _parse_const_expr(self):
         """parse const expr section"""
@@ -1021,7 +1033,8 @@ class TLCWrapper:
                 self.result['start time'] = datetime.strptime(line, 'Starting... (%Y-%m-%d %H:%M:%S)')
             elif message_code == 2186:  # Finished in...
                 self.result['finish time'] = datetime.strptime(line.split('at')[1], ' (%Y-%m-%d %H:%M:%S)')
-                self.result['time consuming'] = self.result['finish time'] - self.result['start time']
+                if self.result['start time'] is not None:
+                    self.result['time consuming'] = self.result['finish time'] - self.result['start time']
                 nonlocal finish_flag
                 finish_flag = True
                 # print_state(self.result['time consuming'])
