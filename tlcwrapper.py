@@ -1160,15 +1160,23 @@ class TLCWrapper:
         xprint('Status: errors: {}, warnings: {}, exit_state: {}'.format(
             len(self.result['errors']), len(self.result['warnings']), self.result['exit state']))
 
+    def has_error(self):
+        """check if there are errors in the result"""
+        return len(self.result['errors']) > 0 or self.result['exit state'] != 0
+
 
 def main(config_file, summary_file=None, separate_constants=None, classpath='', need_community_modules=False,
          log_output=False):
     summary = Summary()
     options = tuple()
+    stop_on_error = False
     for options, config_stringio in BatchConfig(config_file, summary).get():
         xprint('\n{}'.format('#' * 16))
         tlc = TLCWrapper(config_stringio, summary=summary, gen_tla_constants_fn=separate_constants,
             classpath=classpath, need_community_modules=need_community_modules, log_output=log_output)
+        # check stop on error option (only need to read once)
+        if not stop_on_error:
+            stop_on_error = tlc.cfg.getboolean('options', 'stop on error', fallback=False)
         if options:
             xprint('Options:')
             for i in options:
@@ -1177,8 +1185,12 @@ def main(config_file, summary_file=None, separate_constants=None, classpath='', 
         tlc.run()
         xprint('-' * 16)
         tlc.print_result()
+        has_error = tlc.has_error()
         summary.finish_current()
         del tlc
+        if stop_on_error and has_error:
+            xprint('Stopping due to error (stop on error is enabled)')
+            break
     xprint('=' * 16)
     xprint(summary)
     if summary_file or (summary_file is None and options):
