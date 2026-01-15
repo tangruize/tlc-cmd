@@ -1153,10 +1153,14 @@ class TLCWrapper:
     def print_result(self):
         for _, msg in self.result['warnings']:
             xprint('Warning: ' + msg)
+        suppress_error_trace = self.cfg.getboolean('options', 'suppress error trace', fallback=False)
         for _, msg in self.result['errors']:
+            if suppress_error_trace and 'The behavior up to this point is:' in msg:
+                continue
             xprint('Error: ' + msg)
-        for _, msg in self.result['error trace']:
-            xprint(msg)
+        if not suppress_error_trace:
+            for _, msg in self.result['error trace']:
+                xprint(msg)
         xprint('Status: errors: {}, warnings: {}, exit_state: {}'.format(
             len(self.result['errors']), len(self.result['warnings']), self.result['exit state']))
 
