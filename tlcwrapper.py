@@ -589,11 +589,14 @@ class TLCWrapper:
 
     def __init__(self, config_file=None, log_file=True, gen_cfg_fn=None, gen_tla_fn=None, gen_tla_constants_fn=None,
                  summary=None, is_task_id=True, is_split_user_file=True, classpath='', need_community_modules=False,
-                 log_output=False):
+                 log_output=False, suppress_error_trace=False):
         """create model dir, chdir, copy files and generate tlc configfile"""
         
         # save current dir
         self.orig_cwd = os.getcwd()
+
+        # suppress error trace option
+        self.suppress_error_trace = suppress_error_trace
 
         # default is not simulation mode
         self.simulation_mode = False
@@ -1153,7 +1156,7 @@ class TLCWrapper:
     def print_result(self):
         for _, msg in self.result['warnings']:
             xprint('Warning: ' + msg)
-        suppress_error_trace = self.cfg.getboolean('options', 'suppress error trace', fallback=False)
+        suppress_error_trace = self.suppress_error_trace or self.cfg.getboolean('wrapper', 'suppress error trace', fallback=False)
         for _, msg in self.result['errors']:
             if suppress_error_trace and 'The behavior up to this point is:' in msg:
                 continue
@@ -1170,17 +1173,25 @@ class TLCWrapper:
 
 
 def main(config_file, summary_file=None, separate_constants=None, classpath='', need_community_modules=False,
-         log_output=False):
+         log_output=False, stop_on_error=False, suppress_error_trace=False):
     summary = Summary()
     options = tuple()
-    stop_on_error = False
+    wrapper_opts_read = False
+    no_summary = False
     for options, config_stringio in BatchConfig(config_file, summary).get():
         xprint('\n{}'.format('#' * 16))
         tlc = TLCWrapper(config_stringio, summary=summary, gen_tla_constants_fn=separate_constants,
-            classpath=classpath, need_community_modules=need_community_modules, log_output=log_output)
-        # check stop on error option (only need to read once)
-        if not stop_on_error:
-            stop_on_error = tlc.cfg.getboolean('options', 'stop on error', fallback=False)
+            classpath=classpath, need_community_modules=need_community_modules, log_output=log_output,
+            suppress_error_trace=suppress_error_trace)
+        # check wrapper options from config file (only need to read once)
+        if not wrapper_opts_read:
+            wrapper_opts_read = True
+            if not stop_on_error:
+                stop_on_error = tlc.cfg.getboolean('wrapper', 'stop on error', fallback=False)
+            if not no_summary:
+                no_summary = tlc.cfg.getboolean('wrapper', 'no summary', fallback=False)
+            if not suppress_error_trace:
+                suppress_error_trace = tlc.cfg.getboolean('wrapper', 'suppress error trace', fallback=False)
         if options:
             xprint('Options:')
             for i in options:
@@ -1197,6 +1208,9 @@ def main(config_file, summary_file=None, separate_constants=None, classpath='', 
             break
     xprint('=' * 16)
     xprint(summary)
+    # summary_file=False means no summary (from -s flag), no_summary from config file
+    if summary_file is False or no_summary:
+        return
     if summary_file or (summary_file is None and options):
         if isinstance(summary_file, str):
             name = summary_file
@@ -1241,6 +1255,10 @@ if __name__ == '__main__':
                         help='Require community modules')
     parser.add_argument('-n', dest='no_debug', action='store_true', required=False,
                         help='Not to print debug messages')
+    parser.add_argument('-e', dest='stop_on_error', action='store_true', required=False,
+                        help='Stop batch execution when TLC encounters errors', default=False)
+    parser.add_argument('-t', dest='suppress_error_trace', action='store_true', required=False,
+                        help='Suppress printing error traces', default=False)
 
     args = parser.parse_args()
 
@@ -1263,4 +1281,5 @@ if __name__ == '__main__':
             classpath=args.classpath, need_community_modules=args.community_modules)
     else:
         main(args.config_ini, not args.no_summary, separate_constants=args.separate_constants,
-            classpath=args.classpath, need_community_modules=args.community_modules, log_output=True)
+            classpath=args.classpath, need_community_modules=args.community_modules, log_output=True,
+            stop_on_error=args.stop_on_error, suppress_error_trace=args.suppress_error_trace)
