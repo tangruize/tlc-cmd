@@ -318,6 +318,7 @@ class TLCConfigFile:
         """parse constants section"""
         if keyword in self.cfg:
             symmetrical = []
+            generated_model_values = set()  # track already-generated model values for deduplication
             constants = self.cfg[keyword]
             for name in constants:
                 value = constants[name]
@@ -338,16 +339,32 @@ class TLCConfigFile:
                     value = name
                 if is_model_value:
                     if isinstance(value, list):  # set of model values
-                        model_val = '\n'.join('{} = {}'.format(i, i) for i in value)
-                        cfg_str = 'CONSTANTS\n{}\nCONSTANT\n{} <- const_{}'.format(model_val, name, name)
-                        model_val = ', '.join(i for i in value)
-                        tla_str = 'CONSTANTS\n{}\nconst_{} ==\n{{{}}}'.format(model_val, name, model_val)
+                        # filter out already-generated model values
+                        new_values = [i for i in value if i not in generated_model_values]
+                        generated_model_values.update(value)
+                        # cfg: only declare new model values
+                        if new_values:
+                            model_val_cfg = '\n'.join('{} = {}'.format(i, i) for i in new_values)
+                            cfg_str = 'CONSTANTS\n{}\nCONSTANT\n{} <- const_{}'.format(model_val_cfg, name, name)
+                        else:
+                            cfg_str = 'CONSTANT\n{} <- const_{}'.format(name, name)
+                        # tla: only declare new model values, but const_X uses all values
+                        model_val_all = ', '.join(i for i in value)
+                        if new_values:
+                            model_val_tla = ', '.join(i for i in new_values)
+                            tla_str = 'CONSTANTS\n{}\nconst_{} ==\n{{{}}}'.format(model_val_tla, name, model_val_all)
+                        else:
+                            tla_str = 'const_{} ==\n{{{}}}'.format(name, model_val_all)
                         if is_symmetrical:  # symmetry set
                             # cfg_str = '{}\nSYMMETRY symm_{}'.format(cfg_str, name)
                             # tla_str = '{}\nsymm_{} ==\nPermutations(const_{})'.format(tla_str, name, name)
                             symmetrical.append('Permutations(const_{})'.format(name))
                     else:  # model value
-                        cfg_str = 'CONSTANT {} = {}'.format(name, value)
+                        if value not in generated_model_values:
+                            cfg_str = 'CONSTANT {} = {}'.format(name, value)
+                            generated_model_values.add(value)
+                        else:
+                            cfg_str = None
                         tla_str = None
                 else:  # ordinary assignment
                     cfg_str = 'CONSTANT\n{} <- {}_{}'.format(name, prefix, name)
@@ -362,6 +379,13 @@ class TLCConfigFile:
     def _parse_override(self):
         """parse override section"""
         self._parse_constants(keyword='override', prefix='over')
+        # keyword = 'override'
+        # if keyword in self.cfg:
+        #     overides = self.cfg[keyword]
+        #     for name in overides:
+        #         value = overides[name]
+        #         cfg_str = 'CONSTANT\n{} <- {}'.format(name, value)
+        #         self.output_cfg.append(cfg_str)
 
     def _parse_const_expr(self):
         """parse const expr section"""
