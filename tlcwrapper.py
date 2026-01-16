@@ -628,7 +628,7 @@ class TLCWrapper:
         self.need_community_modules = need_community_modules
         if need_community_modules:
             classpath = '{}:{}'.format(classpath, self.community_jar)
-        self._tlc_cmd = ['java', '-XX:+UseParallelGC', '-cp', classpath]
+        self._tlc_cmd = ['java', '-Dtlc2.tool.impl.Tool.cdot=true', '-XX:+UseParallelGC', '-cp', classpath]
         self.classpath = classpath
 
         # open log file
