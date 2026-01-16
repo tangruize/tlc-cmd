@@ -907,7 +907,7 @@ class TLCWrapper:
         result_key = ['start time', 'finish time', 'time consuming',
                       'diameter', 'total states', 'distinct states', 'queued states',
                       'info', 'errors', 'tlc bug', 'warnings', 'error trace', 'other msg',
-                      'coverage', 'exit state']
+                      'coverage', 'exit state', 'received signal']
         result_key_is_list = ['info', 'errors', 'tlc bug', 'warnings', 'error trace', 'other msg', 'coverage']
         self.result = OrderedDict(zip_longest(result_key, tuple()))  # fill None
         for key in result_key_is_list:
@@ -1017,13 +1017,16 @@ class TLCWrapper:
         message_type = -1  # see https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tlc2/output/MP.java
         message_type_key = ('info', 'errors', 'tlc bug', 'warnings', 'error trace', 'other msg')
         finish_flag = False
-        interrupt_flag = False
+        received_signal = None  # None, signal.SIGINT, or signal.SIGQUIT
 
-        def int_handler(sig, frame):
-            nonlocal interrupt_flag
-            interrupt_flag = True
+        def signal_handler(sig, frame):
+            nonlocal received_signal
+            received_signal = sig
+            # if sig == signal.SIGQUIT:
+            #     eprint('\nReceived SIGQUIT (Ctrl+\\), will quit after current task...')
         
-        signal.signal(signal.SIGINT, int_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGQUIT, signal_handler)
 
         def process_message():
             if len(tmp_lines) == 0:
@@ -1114,7 +1117,7 @@ class TLCWrapper:
                 tmp_lines = []
             else:
                 tmp_lines.append(msg_line)
-            if (finish_flag == True and self.distributed_mode == True) or interrupt_flag:
+            if (finish_flag == True and self.distributed_mode == True) or received_signal:
                 process.terminate()
 
         exit_state = process.poll()
@@ -1129,6 +1132,7 @@ class TLCWrapper:
             self.summary.add_info('End Time', cur_time)
             self.summary.add_info('Duration', self.summary.current['End Time'] - self.summary.current['Start Time'])
             f.write('; END TIME: {}\n'.format(cur_time))
+        self.result['received signal'] = received_signal
         return self.result
 
     def get_log(self):
@@ -1197,12 +1201,15 @@ def main(config_file, summary_file=None, separate_constants=None, classpath='', 
             for i in options:
                 xprint(' ', i.replace('\n', '\n  '))
             xprint('-' * 16)
-        tlc.run()
+        result = tlc.run()
         xprint('-' * 16)
         tlc.print_result()
         has_error = tlc.has_error()
         summary.finish_current()
         del tlc
+        if result['received signal'] == signal.SIGQUIT:
+            xprint('Stopping due to SIGQUIT (Ctrl+\\)')
+            break
         if stop_on_error and has_error:
             xprint('Stopping due to error (stop on error is enabled)')
             break
